@@ -6,7 +6,7 @@ services:
   - type: web
     name: dufour-frontend
     runtime: docker
-    dockerfilePath: ./Dockerfile.dev
+    dockerfilePath: ./Dockerfile
     repo: https://github.com/mlanini/dufour-app
     branch: main
     region: frankfurt  # or oregon for US
