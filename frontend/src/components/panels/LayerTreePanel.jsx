@@ -2,21 +2,61 @@
  * LayerTreePanel
  * Panel for managing map layers
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
 
-const LayerTreePanel = ({ onAction }) => {
-  const [layers, setLayers] = useState([
-    { id: 1, name: 'SwissTopo National Map', visible: true, type: 'base' },
-    { id: 2, name: 'SwissImage Aerial', visible: false, type: 'base' },
-    { id: 3, name: 'User Drawings', visible: true, type: 'overlay' },
-    { id: 4, name: 'Military Units', visible: true, type: 'overlay' }
-  ]);
+const LayerTreePanel = ({ onAction, map }) => {
+  const themeConfig = useSelector((state) => state.app.themeConfig);
+  const [layers, setLayers] = useState([]);
+
+  // Carica layer dal theme config
+  useEffect(() => {
+    if (!themeConfig || !map) return;
+
+    console.log('LayerTreePanel: Loading layers from theme');
+
+    try {
+      // Ottieni layer dalla mappa OpenLayers
+      const olLayers = map.getLayers().getArray();
+      
+      // Converti in formato per UI
+      const layerList = olLayers.map((olLayer, index) => {
+        const name = olLayer.get('name') || `Layer ${index}`;
+        const title = olLayer.get('title') || name;
+        const type = olLayer.get('background') ? 'base' : 'overlay';
+        const visible = olLayer.getVisible();
+
+        return {
+          id: index,
+          name: title,
+          visible: visible,
+          type: type,
+          olLayer: olLayer // Riferimento al layer OpenLayers
+        };
+      });
+
+      setLayers(layerList);
+      console.log(`LayerTreePanel: Loaded ${layerList.length} layers`);
+
+    } catch (error) {
+      console.error('Error loading layers in LayerTreePanel:', error);
+    }
+  }, [themeConfig, map]);
 
   const toggleLayer = (id) => {
-    setLayers(layers.map(layer => 
-      layer.id === id ? { ...layer, visible: !layer.visible } : layer
+    const layer = layers.find(l => l.id === id);
+    if (!layer || !layer.olLayer) return;
+
+    // Toggle visibilità sul layer OpenLayers
+    const newVisibility = !layer.olLayer.getVisible();
+    layer.olLayer.setVisible(newVisibility);
+
+    // Aggiorna stato locale
+    setLayers(layers.map(l => 
+      l.id === id ? { ...l, visible: newVisibility } : l
     ));
-    // Close panel on mobile after toggling layer
+
+    // Chiudi panel su mobile dopo toggle
     if (onAction) onAction();
   };
 

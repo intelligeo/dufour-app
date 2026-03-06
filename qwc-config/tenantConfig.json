@@ -1,0 +1,54 @@
+{
+  "$schema": "https://github.com/qwc-services/qwc-config-generator/raw/master/schemas/qwc-config-generator.json",
+  "service": "config-generator",
+  "config": {
+    "tenant": "default",
+    "default_qgis_server_url": "http://qgis-server:80/cgi-bin/qgis_mapserv.fcgi"
+  },
+  "services": [
+    {
+      "name": "ogc",
+      "config": {
+        "default_qgis_server_url": "http://qgis-server:80/cgi-bin/qgis_mapserv.fcgi"
+      }
+    },
+    {
+      "name": "map-viewer",
+      "config": {
+        "qgis_projects_base_dir": "/data/projects"
+      },
+      "resources": {
+        "qwc2_config": {
+          "qwc2_config_file": "/qwc-config/qwc2.json",
+          "qwc2_index_file": "/usr/share/nginx/html/index.html"
+        }
+      }
+    },
+    {
+      "name": "search",
+      "config": {
+        "search_result_limit": 50
+      }
+    },
+    {
+      "name": "print",
+      "config": {
+        "ogc_service_url": "http://qgis-server:80/cgi-bin/qgis_mapserv.fcgi"
+      }
+    }
+  ],
+  "themesConfig": {
+    "themes": {
+      "title": "root",
+      "items": [],
+      "subdirs": [],
+      "defaultTheme": "dufour",
+      "defaultScales": [1000000, 500000, 250000, 100000, 50000, 25000, 10000, 5000, 2500, 1000, 500],
+      "defaultPrintScales": [25000, 10000, 5000, 2500, 1000],
+      "defaultPrintResolutions": [300],
+      "defaultBackgroundLayers": [],
+      "defaultSearchProviders": ["coordinates"],
+      "defaultMapCrs": "EPSG:3857"
+    }
+  }
+}

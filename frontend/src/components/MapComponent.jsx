@@ -7,22 +7,25 @@ import { useDispatch, useSelector } from 'react-redux';
 import Map from 'ol/Map';
 import View from 'ol/View';
 import { defaults as defaultControls } from 'ol/control';
-import { fromLonLat, transform } from 'ol/proj';
+import { fromLonLat, transform, transformExtent } from 'ol/proj';
 import { register } from 'ol/proj/proj4';
 import proj4 from 'proj4';
 import TileLayer from 'ol/layer/Tile';
 import WMTS from 'ol/source/WMTS';
 import WMTSTileGrid from 'ol/tilegrid/WMTS';
 import { getTopLeft } from 'ol/extent';
+import { qwcApiService } from '../services/qwcApiService';
+import { setLayers } from '../store/store';
 
 // Define Swiss projection (EPSG:2056 - LV95)
 proj4.defs('EPSG:2056', '+proj=somerc +lat_0=46.95240555555556 +lon_0=7.439583333333333 +k_0=1 +x_0=2600000 +y_0=1200000 +ellps=bessel +towgs84=674.374,15.056,405.346,0,0,0,0 +units=m +no_defs');
 register(proj4);
 
-const MapComponent = ({ activeTool }) => {
+const MapComponent = ({ activeTool, onMapReady }) => {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const dispatch = useDispatch();
+  const themeConfig = useSelector((state) => state.app.themeConfig);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -79,6 +82,11 @@ const MapComponent = ({ activeTool }) => {
     // Store map instance
     mapInstanceRef.current = map;
 
+    // Notifica parent component che la mappa è pronta
+    if (onMapReady) {
+      onMapReady(map);
+    }
+
     // Update Redux store with map state
     map.on('moveend', () => {
       const view = map.getView();
@@ -101,6 +109,63 @@ const MapComponent = ({ activeTool }) => {
       }
     };
   }, []);
+
+  // Load layers from theme config
+  useEffect(() => {
+    if (!mapInstanceRef.current || !themeConfig) return;
+
+    console.log('Loading layers from theme:', themeConfig.title);
+
+    try {
+      // Rimuovi tutti i layer esistenti tranne il primo (background)
+      const map = mapInstanceRef.current;
+      const currentLayers = map.getLayers().getArray();
+      
+      // Mantieni solo il background layer (primo layer)
+      while (currentLayers.length > 1) {
+        map.removeLayer(currentLayers[currentLayers.length - 1]);
+      }
+
+      // Crea e aggiungi nuovi layer dal theme
+      const newLayers = qwcApiService.createLayersFromTheme(themeConfig);
+      
+      // Aggiungi layer alla mappa (salta background layers già presenti)
+      newLayers.forEach(layer => {
+        const isBackground = layer.get('background');
+        if (!isBackground) {
+          map.addLayer(layer);
+        }
+      });
+
+      // Aggiorna store Redux
+      dispatch(setLayers(newLayers.map(l => ({
+        name: l.get('name'),
+        title: l.get('title'),
+        visible: l.getVisible(),
+        type: l.get('type')
+      }))));
+
+      // Adatta vista all'extent del tema
+      const themeExtent = qwcApiService.getThemeExtent(themeConfig);
+      if (themeExtent) {
+        // Converti extent da WGS84 a EPSG:3857
+        const transformedExtent = transformExtent(
+          themeExtent,
+          'EPSG:4326',
+          'EPSG:3857'
+        );
+        map.getView().fit(transformedExtent, {
+          padding: [50, 50, 50, 50],
+          duration: 1000
+        });
+      }
+
+      console.log(`Loaded ${newLayers.length} layers from theme`);
+
+    } catch (error) {
+      console.error('Error loading layers from theme:', error);
+    }
+  }, [themeConfig, dispatch]);
 
   // Handle active tool changes
   useEffect(() => {

@@ -8,7 +8,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'qwc2': 'qwc2',
     },
   },
   server: {
@@ -37,12 +36,11 @@ export default defineConfig({
         manualChunks: {
           'vendor-react': ['react', 'react-dom', 'react-redux'],
           'vendor-map': ['ol', 'proj4'],
-          'qwc2': ['qwc2'],
         },
       },
     },
   },
   optimizeDeps: {
-    include: ['react', 'react-dom', 'ol', 'qwc2'],
+    include: ['react', 'react-dom', 'ol'],
   },
 });

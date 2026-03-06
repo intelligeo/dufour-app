@@ -35,6 +35,12 @@ let currentTab = 'map';
 let currentLocale = 'en_US';
 let activeTool = null;
 let map = null;
+let currentProject = 'tactical_ops';
+let projects = [
+    { name: 'tactical_ops', title: 'Tactical Operations' },
+    { name: 'training_area', title: 'Training Area Map' },
+    { name: 'surveillance', title: 'Surveillance Zone' }
+];
 
 // Translations
 const translations = {
@@ -905,10 +911,12 @@ window.onload = function() {
     initMap();
     renderRibbonContent('map');
     initMobileMenu();
+    initProjectSelector();
     
     console.log('🗺️ dufour.app mockup loaded successfully!');
     console.log('Switch tabs to see different tools');
     console.log('Click tools to open side panels');
+    console.log('💡 ProjectSelector: Select different projects in the status bar');
 };
 
 // ============================================================================
@@ -1367,6 +1375,28 @@ document.addEventListener('keydown', (e) => {
         closeMapEditPanel();
     }
 });
+
+// Project Management Functions
+function refreshProjects() {
+    console.log('Refreshing projects list...');
+    // Simulate API call
+    alert('Projects refreshed! In produzione questo caricherebbe da /api/projects');
+}
+
+// Initialize project selector
+function initProjectSelector() {
+    const selector = document.getElementById('projectSelector');
+    if (selector) {
+        selector.value = currentProject;
+        selector.addEventListener('change', function() {
+            const newProject = this.value;
+            console.log(`Switching project from ${currentProject} to ${newProject}`);
+            currentProject = newProject;
+            // In produzione: carica theme e layer da API
+            alert(`Progetto cambiato: ${projects.find(p => p.name === newProject).title}\n\nIn produzione caricherà:\n- Theme config da /api/v1/themes/${newProject}\n- Layer dinamici sulla mappa`);
+        });
+    }
+}
 
 console.log('✅ Edit mode system initialized');
 console.log('📌 Keyboard shortcuts: M = Map, G = Grid, C = Chart, ESC = Close panels');

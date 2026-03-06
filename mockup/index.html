@@ -738,6 +738,51 @@
             font-family: 'Courier New', monospace;
         }
 
+        /* Project Selector in Status Bar */
+        .project-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 12px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            margin-right: 16px;
+        }
+
+        .project-selector__label {
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .project-selector__select {
+            min-width: 200px;
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            background: white;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .project-selector__select:hover {
+            border-color: var(--secondary-color);
+        }
+
+        .project-selector__refresh {
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .project-selector__refresh:hover {
+            background: #e9ecef;
+            border-color: var(--secondary-color);
+        }
+
         /* Panel Content Styles */
         .panel-section {
             margin-bottom: 16px;
@@ -1493,6 +1538,17 @@
         <!-- Status Bar -->
         <div class="status-bar">
             <div class="status-bar-left">
+                <!-- Project Selector -->
+                <div class="project-selector">
+                    <span class="project-selector__label">Progetto:</span>
+                    <select class="project-selector__select" id="projectSelector">
+                        <option value="tactical_ops">Tactical Operations</option>
+                        <option value="training_area">Training Area Map</option>
+                        <option value="surveillance">Surveillance Zone</option>
+                    </select>
+                    <button class="project-selector__refresh" onclick="refreshProjects()" title="Ricarica progetti">⟳</button>
+                </div>
+                
                 <div class="status-item">
                     <span class="status-item-label">Coordinates:</span>
                     <span class="status-item-value" id="coordinates">---</span>

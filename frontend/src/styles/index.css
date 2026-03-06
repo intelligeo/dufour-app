@@ -159,6 +159,9 @@ button:disabled {
   }
 }
 
+/* Import component styles */
+@import './project-selector.css';
+
 /* Print styles */
 @media print {
   body * {

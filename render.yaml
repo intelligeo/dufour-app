@@ -1,37 +1,97 @@
 # Render.com Blueprint for dufour.app
-# Simplified configuration for free tier deployment
+# Complete deployment configuration
 
 services:
-  # Frontend Web Service (Nginx + React)
+  # Backend API Service (FastAPI)
+  - type: web
+    name: dufour-api
+    runtime: docker
+    dockerfilePath: ./backend/api/Dockerfile
+    dockerContext: ./backend/api
+    repo: https://github.com/mlanini/dufour-app
+    branch: main
+    region: frankfurt
+    plan: free
+    envVars:
+      - key: POSTGIS_HOST
+        fromDatabase:
+          name: dufour-postgis
+          property: host
+      - key: POSTGIS_PORT
+        fromDatabase:
+          name: dufour-postgis
+          property: port
+      - key: POSTGIS_DB
+        fromDatabase:
+          name: dufour-postgis
+          property: database
+      - key: POSTGIS_USER
+        fromDatabase:
+          name: dufour-postgis
+          property: user
+      - key: POSTGIS_PASSWORD
+        fromDatabase:
+          name: dufour-postgis
+          property: password
+      - key: QGIS_SERVER_URL
+        value: https://dufour-qgis.onrender.com
+      - key: PROJECTS_DIR
+        value: /data/projects
+      - key: QWC_CONFIG_DIR
+        value: /qwc-config
+    healthCheckPath: /
+    autoDeploy: true
+    
+  # QGIS Server Service (Docker)
+  - type: web
+    name: dufour-qgis
+    runtime: docker
+    repo: https://github.com/mlanini/dufour-app
+    branch: main
+    region: frankfurt
+    plan: starter  # QGIS Server richiede più risorse
+    dockerCommand: /usr/local/bin/run_qgis_server.sh
+    envVars:
+      - key: QGIS_SERVER_LOG_LEVEL
+        value: "0"
+      - key: QGIS_SERVER_PARALLEL_RENDERING
+        value: "true"
+    # Note: Richiede Dockerfile custom per QGIS Server in root
+    dockerfilePath: ./Dockerfile.qgis
+    autoDeploy: true
+
+  # Frontend Web Service (Vite + React)
   - type: web
     name: dufour-frontend
     runtime: docker
     dockerfilePath: ./Dockerfile
     repo: https://github.com/mlanini/dufour-app
     branch: main
-    region: frankfurt  # or oregon for US
+    region: frankfurt
     plan: free
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 80
+      - key: VITE_API_URL
+        value: https://dufour-api.onrender.com
+      - key: VITE_QGIS_SERVER_URL
+        value: https://dufour-qgis.onrender.com
     healthCheckPath: /
     autoDeploy: true
 
-# Note: For a complete deployment, you would also need:
-# - QGIS Server (requires custom Docker setup)
-# - PostGIS Database (use Render's managed PostgreSQL with PostGIS extension)
-#
-# These can be added as separate services if needed:
-#
-# databases:
-#   - name: dufour-postgis
-#     databaseName: gisdb
-#     user: gisuser
-#     plan: free  # or starter for PostGIS extension support
-#     region: frankfurt
-#     postgresMajorVersion: 15
-#     # Note: PostGIS extension must be enabled manually after creation
-#     # Connect and run: CREATE EXTENSION IF NOT EXISTS postgis;
+databases:
+  # PostgreSQL with PostGIS
+  - name: dufour-postgis
+    databaseName: gisdb
+    user: gisuser
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: "15"
+    # Note: PostGIS extension must be enabled after creation
+    # Connect and run: CREATE EXTENSION IF NOT EXISTS postgis;
+
+# Note: Per volumi persistenti (progetti QGIS), considerare:
+# - Render Disks (servizi a pagamento)
+# - External storage (S3, Cloudinary, ecc.)
+# - Database BLOB storage per file .qgs
 

@@ -53,6 +53,35 @@ services:
     networks:
       - dufour-network
 
+  # Dufour Middleware API
+  dufour-api:
+    build:
+      context: ./backend/api
+      dockerfile: Dockerfile
+    container_name: dufour-api
+    environment:
+      POSTGIS_HOST: postgis
+      POSTGIS_PORT: 5432
+      POSTGIS_DB: gisdb
+      POSTGIS_USER: gisuser
+      POSTGIS_PASSWORD: gispassword
+      QGIS_SERVER_URL: http://qgis-server:80
+      PROJECTS_DIR: /data/projects
+      QWC_CONFIG_DIR: /qwc-config
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./qgis-server/projects:/data/projects
+      - ./qwc-config:/qwc-config
+      - ./backend/api:/app
+    depends_on:
+      postgis:
+        condition: service_healthy
+      qgis-server:
+        condition: service_started
+    networks:
+      - dufour-network
+
   # Frontend Development Server (for development only)
   frontend-dev:
     build:
@@ -61,7 +90,8 @@ services:
     container_name: dufour-frontend-dev
     environment:
       NODE_ENV: development
-      VITE_API_URL: http://localhost:8080
+      VITE_API_URL: http://localhost:3000
+      VITE_QGIS_SERVER_URL: http://localhost:8080
       VITE_POSTGIS_URL: http://localhost:5432
     ports:
       - "5173:5173"

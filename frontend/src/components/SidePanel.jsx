@@ -12,7 +12,7 @@ import ImportPanel from './panels/ImportPanel';
 import PrintPanel from './panels/PrintPanel';
 import SettingsPanel from './panels/SettingsPanel';
 
-const SidePanel = ({ side, content, onClose, onAction }) => {
+const SidePanel = ({ side, content, onClose, onAction, map }) => {
   // Auto-close on mobile when action is performed
   const handleAction = () => {
     if (window.innerWidth <= 768 && onAction) {
@@ -74,7 +74,7 @@ const SidePanel = ({ side, content, onClose, onAction }) => {
   const renderPanelContent = () => {
     switch (content) {
       case 'layers':
-        return <LayerTreePanel onAction={handleAction} />;
+        return <LayerTreePanel onAction={handleAction} map={map} />;
       case 'search':
         return <SearchPanel onAction={handleAction} />;
       case 'measurement':

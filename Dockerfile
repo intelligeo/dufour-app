@@ -12,6 +12,14 @@ RUN npm install
 # Copy source code
 COPY frontend/ ./
 
+# Build arguments for environment variables
+ARG VITE_API_URL
+ARG VITE_QGIS_SERVER_URL
+
+# Set as environment variables for Vite build
+ENV VITE_API_URL=${VITE_API_URL}
+ENV VITE_QGIS_SERVER_URL=${VITE_QGIS_SERVER_URL}
+
 # Build the application
 RUN npm run build
 

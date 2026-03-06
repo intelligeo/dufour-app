@@ -40,15 +40,33 @@ Dufour.app is a lightweight, OS-independent web application that brings KADAS Al
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Deployment su Render.com (Consigliato)
 
+**Deploy in produzione in 10 minuti:**
+
+Segui la guida: **[DEPLOY-QUICK-START.md](DEPLOY-QUICK-START.md)**
+
+```bash
+# 1. Push su GitHub
+git push origin main
+
+# 2. Crea servizi su Render.com
+# - PostgreSQL + PostGIS
+# - Backend API (FastAPI)
+# - Frontend (React)
+
+# 3. Accedi all'app
+# https://dufour-frontend.onrender.com
+```
+
+### Development Setup Locale
+
+**Prerequisiti**:
 - Docker Desktop & Docker Compose
 - Node.js 18+ and npm 9+
 - Git
 
-### Development Setup
-
-```powershell
+**Setup**:powershell
 # Clone the repository
 git clone https://github.com/mlanini/dufour-app.git
 cd dufour-app
@@ -80,6 +98,21 @@ docker-compose -f docker-compose.prod.yml up -d
 ```
 
 ## 📖 Documentation
+
+### Deployment & Testing
+- **[DEPLOY-QUICK-START.md](DEPLOY-QUICK-START.md)** - Deploy su Render.com (10 min)
+- **[RENDER-DEPLOYMENT.md](RENDER-DEPLOYMENT.md)** - Guida completa deployment
+- **[PHASE3-TESTING.md](PHASE3-TESTING.md)** - Test sistema completo
+
+### Architecture & Development
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Architettura sistema
+- **[PHASE2-FRONTEND-INTEGRATION.md](PHASE2-FRONTEND-INTEGRATION.md)** - Frontend integration
+- **[backend/api/README.md](backend/api/README.md)** - Backend API documentation
+
+### Setup & Guides
+- **[SETUP.md](SETUP.md)** - Setup completo locale
+- **[GUIDE.md](GUIDE.md)** - Guida utente
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Come contribuire
 
 - **[GUIDE.md](GUIDE.md)** - Complete user guide with features and usage instructions
 - **[DEPLOY.md](DEPLOY.md)** - Deployment guide for local, Docker, and cloud platforms

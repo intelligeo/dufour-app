@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import { transform } from 'ol/proj';
+import ProjectSelector from './ProjectSelector';
 
 const StatusBar = ({ position, zoom, scale, locale }) => {
   const formatCoordinate = (coord, projection = 'EPSG:4326') => {
@@ -65,6 +66,7 @@ const StatusBar = ({ position, zoom, scale, locale }) => {
   return (
     <div className="status-bar">
       <div className="status-bar-left">
+        <ProjectSelector />
         <div className="status-item">
           <span className="status-item-label">{t.coordinates}:</span>
           <span className="status-item-value">{formatCoordinate(position)}</span>

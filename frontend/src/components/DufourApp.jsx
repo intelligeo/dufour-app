@@ -19,6 +19,7 @@ const DufourApp = () => {
   const [leftPanelContent, setLeftPanelContent] = useState(null);
   const [rightPanelContent, setRightPanelContent] = useState(null);
   const [activeTool, setActiveTool] = useState(null);
+  const [mapInstance, setMapInstance] = useState(null);
   
   // Edit mode state: 'map', 'grid', 'chart'
   const [editMode, setEditMode] = useState('map');
@@ -161,6 +162,7 @@ const DufourApp = () => {
             content={leftPanelContent}
             onClose={() => setLeftPanelOpen(false)}
             onAction={() => setLeftPanelOpen(false)}
+            map={mapInstance}
           />
         )}
 
@@ -168,7 +170,7 @@ const DufourApp = () => {
         <div className="map-container">
           {editMode === 'map' && (
             <>
-              <MapComponent activeTool={activeTool} />
+              <MapComponent activeTool={activeTool} onMapReady={setMapInstance} />
               {mapEditPanelOpen && (
                 <MapEditPanel
                   onClose={() => setMapEditPanelOpen(false)}
@@ -205,6 +207,7 @@ const DufourApp = () => {
             content={rightPanelContent}
             onClose={() => setRightPanelOpen(false)}
             onAction={() => setRightPanelOpen(false)}
+            map={mapInstance}
           />
         )}
       </div>
