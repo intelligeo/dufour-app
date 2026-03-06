@@ -4,6 +4,8 @@ Manages QGIS project files: upload, storage, validation, metadata
 """
 import os
 import shutil
+import zipfile
+import tempfile
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -33,13 +35,15 @@ class ProjectService:
         """
         projects = []
         
-        for project_file in self.projects_dir.glob('*.qgs'):
-            try:
-                metadata = await self._extract_project_metadata(project_file)
-                projects.append(ProjectResponse(**metadata))
-            except Exception as e:
-                print(f"Warning: Could not read project {project_file.name}: {e}")
-                continue
+        # Scan both .qgs and .qgz files
+        for pattern in ['*.qgs', '*.qgz']:
+            for project_file in self.projects_dir.glob(pattern):
+                try:
+                    metadata = await self._extract_project_metadata(project_file)
+                    projects.append(ProjectResponse(**metadata))
+                except Exception as e:
+                    print(f"Warning: Could not read project {project_file.name}: {e}")
+                    continue
         
         # Sort by modified date, newest first
         projects.sort(key=lambda p: p.modified_at or datetime.min, reverse=True)
@@ -172,9 +176,26 @@ class ProjectService:
     async def _extract_project_metadata(self, project_file: Path) -> Dict[str, Any]:
         """
         Extract metadata from QGIS project XML
+        Supports both .qgs and .qgz (compressed) files
         """
-        tree = ET.parse(project_file)
-        root = tree.getroot()
+        # Handle .qgz (compressed) files
+        if project_file.suffix == '.qgz':
+            try:
+                with zipfile.ZipFile(project_file, 'r') as zf:
+                    # Find .qgs file inside archive
+                    qgs_files = [f for f in zf.namelist() if f.endswith('.qgs')]
+                    if not qgs_files:
+                        raise ValueError("No .qgs file found in .qgz archive")
+                    
+                    # Read .qgs content from archive
+                    qgs_content = zf.read(qgs_files[0])
+                    root = ET.fromstring(qgs_content)
+            except Exception as e:
+                raise ValueError(f"Failed to extract metadata from .qgz: {e}")
+        else:
+            # Handle .qgs (uncompressed) files
+            tree = ET.parse(project_file)
+            root = tree.getroot()
         
         # Extract basic info
         title_elem = root.find('.//title')

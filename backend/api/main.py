@@ -51,6 +51,50 @@ async def root():
     }
 
 
+@app.get("/api/status")
+async def api_status():
+    """
+    API status with detailed information for debugging
+    """
+    import os
+    from pathlib import Path
+    
+    projects_dir = Path(os.getenv('PROJECTS_DIR', '/projects'))
+    qgis_server_url = os.getenv('QGIS_SERVER_URL', 'http://qgis-server:80')
+    
+    # Check projects directory
+    projects_exist = projects_dir.exists()
+    if projects_exist:
+        qgs_files = list(projects_dir.glob('*.qgs'))
+        qgz_files = list(projects_dir.glob('*.qgz'))
+        project_count = len(qgs_files) + len(qgz_files)
+    else:
+        project_count = 0
+        qgs_files = []
+        qgz_files = []
+    
+    # Check QGIS Server
+    qgis_online = await project_service.check_qgis_server()
+    
+    return {
+        "api": "online",
+        "version": "1.0.0",
+        "projects_dir": str(projects_dir),
+        "projects_dir_exists": projects_exist,
+        "project_count": project_count,
+        "qgs_files": [f.name for f in qgs_files],
+        "qgz_files": [f.name for f in qgz_files],
+        "qgis_server": {
+            "url": qgis_server_url,
+            "online": qgis_online
+        },
+        "database": {
+            "host": os.getenv('POSTGIS_HOST'),
+            "db": os.getenv('POSTGIS_DB')
+        }
+    }
+
+
 @app.get("/api/projects", response_model=List[ProjectResponse])
 async def list_projects():
     """
