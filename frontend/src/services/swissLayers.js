@@ -10,7 +10,7 @@ import { get as getProjection } from 'ol/proj';
 import { getWidth, getTopLeft } from 'ol/extent';
 
 // SwissTopo WMTS configuration
-const SWISSTOPO_WMTS_URL = 'https://wmts.geo.admin.ch/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileCol}/{TileRow}.{Format}';
+const SWISSTOPO_WMTS_URL = 'https://wmts.geo.admin.ch/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.{Format}';
 
 // Web Mercator projection extent
 const projection = getProjection('EPSG:3857');

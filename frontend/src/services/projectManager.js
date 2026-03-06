@@ -17,17 +17,25 @@ class ProjectManagerService {
    */
   async listProjects() {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/projects`);
+      const response = await fetch(`${API_BASE_URL}/api/projects`, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch projects: ${response.statusText}`);
+        // Return empty array if API is not available (graceful fallback)
+        console.warn(`API not available (${response.status}): ${response.statusText}`);
+        return [];
       }
       
       const projects = await response.json();
       return projects;
     } catch (error) {
-      console.error('Error listing projects:', error);
-      throw error;
+      console.warn('Error listing projects (returning empty array):', error.message);
+      // Return empty array instead of throwing - graceful degradation
+      return [];
     }
   }
 
@@ -38,13 +46,19 @@ class ProjectManagerService {
    */
   async getProject(projectName) {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/projects/${projectName}`);
+      const response = await fetch(`${API_BASE_URL}/api/projects/${projectName}`, {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
       
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error(`Project "${projectName}" not found`);
         }
-        throw new Error(`Failed to fetch project: ${response.statusText}`);
+        console.warn(`Failed to fetch project: ${response.statusText}`);
+        return null;
       }
       
       const project = await response.json();
