@@ -240,6 +240,35 @@ const DufourApp = () => {
           {editMode === 'map' && (
             <>
               <MapComponent activeTool={activeTool} onMapReady={setMapInstance} />
+              
+              {/* Measurement Plugin */}
+              {measureActive && (
+                <MeasurePlugin
+                  map={mapInstance}
+                  mode={measureMode}
+                  active={measureActive}
+                  onMeasurement={(measurement) => console.log('Measurement:', measurement)}
+                  onClose={() => {
+                    setMeasureActive(false);
+                    setActiveTool(null);
+                  }}
+                />
+              )}
+              
+              {/* Redlining Plugin */}
+              {redliningActive && (
+                <RedliningPlugin
+                  map={mapInstance}
+                  mode={redliningMode}
+                  active={redliningActive}
+                  onFeatureDrawn={(feature) => console.log('Feature drawn:', feature)}
+                  onClose={() => {
+                    setRedliningActive(false);
+                    setActiveTool(null);
+                  }}
+                />
+              )}
+              
               {mapEditPanelOpen && (
                 <MapEditPanel
                   onClose={() => setMapEditPanelOpen(false)}
