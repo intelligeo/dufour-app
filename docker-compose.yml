@@ -60,11 +60,11 @@ services:
       dockerfile: Dockerfile
     container_name: dufour-api
     environment:
-      POSTGIS_HOST: postgis
+      POSTGIS_HOST: postgresql-intelligeo.alwaysdata.net
       POSTGIS_PORT: 5432
-      POSTGIS_DB: gisdb
-      POSTGIS_USER: gisuser
-      POSTGIS_PASSWORD: gispassword
+      POSTGIS_DB: intelligeo_dufour
+      POSTGIS_USER: intelligeo_dufour_admin
+      POSTGIS_PASSWORD: Dufour.00r
       QGIS_SERVER_URL: http://qgis-server:80
       PROJECTS_DIR: /data/projects
       QWC_CONFIG_DIR: /qwc-config
@@ -75,8 +75,6 @@ services:
       - ./qwc-config:/qwc-config
       - ./backend/api:/app
     depends_on:
-      postgis:
-        condition: service_healthy
       qgis-server:
         condition: service_started
     networks:

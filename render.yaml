@@ -14,25 +14,15 @@ services:
     plan: free
     envVars:
       - key: POSTGIS_HOST
-        fromDatabase:
-          name: dufour-postgis
-          property: host
+        value: postgresql-intelligeo.alwaysdata.net
       - key: POSTGIS_PORT
-        fromDatabase:
-          name: dufour-postgis
-          property: port
+        value: "5432"
       - key: POSTGIS_DB
-        fromDatabase:
-          name: dufour-postgis
-          property: database
+        value: intelligeo_dufour
       - key: POSTGIS_USER
-        fromDatabase:
-          name: dufour-postgis
-          property: user
+        value: intelligeo_dufour_admin
       - key: POSTGIS_PASSWORD
-        fromDatabase:
-          name: dufour-postgis
-          property: password
+        value: Dufour.00r
       - key: QGIS_SERVER_URL
         value: https://dufour-qgis.onrender.com
       - key: PROJECTS_DIR
@@ -79,16 +69,9 @@ services:
     healthCheckPath: /
     autoDeploy: true
 
-databases:
-  # PostgreSQL with PostGIS
-  - name: dufour-postgis
-    databaseName: gisdb
-    user: gisuser
-    plan: free
-    region: frankfurt
-    postgresMajorVersion: "15"
-    # Note: PostGIS extension must be enabled after creation
-    # Connect and run: CREATE EXTENSION IF NOT EXISTS postgis;
+# Note: Using external PostgreSQL database (alwaysdata.net)
+# Database: intelligeo_dufour (PostgreSQL 16 + PostGIS)
+# Extensions already enabled: pgcrypto, pgvector, PostGIS, PostGIS Raster, pgRouting, PostGIS Topology
 
 # Note: Per volumi persistenti (progetti QGIS), considerare:
 # - Render Disks (servizi a pagamento)
