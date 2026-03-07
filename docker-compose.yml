@@ -1,86 +1,41 @@
 version: '3.8'
 
 services:
-  # PostgreSQL with PostGIS
-  postgis:
-    image: postgis/postgis:15-3.4-alpine
-    container_name: dufour-postgis
-    environment:
-      POSTGRES_DB: gisdb
-      POSTGRES_USER: gisuser
-      POSTGRES_PASSWORD: gispassword
-      POSTGRES_HOST_AUTH_METHOD: trust
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgis-data:/var/lib/postgresql/data
-      - ./postgis/init:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gisuser -d gisdb"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - dufour-network
-
-  # QGIS Server
-  qgis-server:
-    image: openquake/qgis-server:stable
-    container_name: dufour-qgis
-    environment:
-      QGIS_SERVER_LOG_LEVEL: 0
-      QGIS_SERVER_LOG_STDERR: 1
-      QGIS_PROJECT_FILE: /data/projects/dufour.qgs
-      PGSERVICEFILE: /data/pg_service.conf
-      QGIS_SERVER_PARALLEL_RENDERING: 1
-      MAX_CACHE_LAYERS: 100
-      # Enable CORS for development
-      QGIS_SERVER_ALLOWED_ORIGINS: "*"
-    ports:
-      - "8080:80"
-    volumes:
-      - ./qgis-server/projects:/data/projects
-      - ./qgis-server/plugins:/usr/share/qgis/python/plugins
-      - ./qgis-server/pg_service.conf:/data/pg_service.conf
-    depends_on:
-      postgis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/cgi-bin/qgis_mapserv.fcgi?SERVICE=WMS&REQUEST=GetCapabilities"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - dufour-network
-
-  # Dufour Middleware API
+  # Backend API + QGIS Server (Embedded)
   dufour-api:
     build:
       context: ./backend/api
       dockerfile: Dockerfile
     container_name: dufour-api
     environment:
+      # PostgreSQL external (alwaysdata.net)
       POSTGIS_HOST: postgresql-intelligeo.alwaysdata.net
       POSTGIS_PORT: 5432
       POSTGIS_DB: intelligeo_dufour
-      POSTGIS_USER: intelligeo_dufour_admin
+      POSTGIS_USER: intelligeo_dufour
       POSTGIS_PASSWORD: Dufour.00r
-      QGIS_SERVER_URL: http://qgis-server:80
-      PROJECTS_DIR: /data/projects
-      QWC_CONFIG_DIR: /qwc-config
+      # QGIS Server embedded (localhost)
+      QGIS_SERVER_URL: http://localhost:8080
+      QGIS_SERVER_LOG_LEVEL: 0
+      QGIS_SERVER_PARALLEL_RENDERING: 1
+      QGIS_SERVER_MAX_THREADS: 2
+      QGIS_SERVER_IGNORE_BAD_LAYERS: 1
+      LOG_LEVEL: DEBUG
     ports:
-      - "3000:3000"
+      - "3000:3000"  # FastAPI
+      - "8080:8080"  # QGIS Server
     volumes:
-      - ./qgis-server/projects:/data/projects
-      - ./qwc-config:/qwc-config
       - ./backend/api:/app
-    depends_on:
-      qgis-server:
-        condition: service_started
+      - qgis-cache:/tmp/qgis_cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - dufour-network
 
-  # Frontend Development Server (for development only)
+  # Frontend Development Server
   frontend-dev:
     build:
       context: ./frontend
@@ -89,14 +44,14 @@ services:
     environment:
       NODE_ENV: development
       VITE_API_URL: http://localhost:3000
-      VITE_QGIS_SERVER_URL: http://localhost:8080
-      VITE_POSTGIS_URL: http://localhost:5432
     ports:
       - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     command: npm run dev
+    depends_on:
+      - dufour-api
     networks:
       - dufour-network
 
@@ -117,7 +72,7 @@ services:
       - dufour-network
 
 volumes:
-  postgis-data:
+  qgis-cache:
     driver: local
 
 networks:

@@ -1,7 +1,5 @@
 # Dufour.app
 
-**A KADAS-inspired web GIS application for military operations, emergency response, and geospatial analysis**
-
 [![License: BSD-2-Clause](https://img.shields.io/badge/License-BSD%202--Clause-blue.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/mlanini/dufour-app?style=social)](https://github.com/mlanini/dufour-app/stargazers)
 [![GitHub Issues](https://img.shields.io/github/issues/mlanini/dufour-app)](https://github.com/mlanini/dufour-app/issues)
