@@ -27,7 +27,18 @@ const icons = {
     download: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>',
     printer: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/></svg>',
     settings: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>',
-    help: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>'
+    help: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>',
+    // ORBAT Icons
+    orgChart: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="4" rx="1"/><rect x="3" y="11" width="6" height="4" rx="1"/><rect x="15" y="11" width="6" height="4" rx="1"/><path d="M12 6v5M6 11v-1a2 2 0 012-2h8a2 2 0 012 2v1"/></svg>',
+    side: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M6 21V17a4 4 0 014-4h4a4 4 0 014 4v4"/></svg>',
+    group: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="16" cy="11" r="3"/><path d="M5 21v-2a4 4 0 014-4h0M15 21v-2a4 4 0 014-4h0"/></svg>',
+    deploy: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M5 12l7-7 7 7M5 19h14"/></svg>',
+    filter: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',
+    expand: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+    collapse: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>',
+    chevronRight: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>',
+    chevronDown: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>',
+    eyeOff: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
 };
 
 // State
@@ -82,7 +93,18 @@ const translations = {
         print: 'Print',
         mapCompare: 'Map Compare',
         view3d: '3D View',
-        overviewMap: 'Overview Map'
+        overviewMap: 'Overview Map',
+        orbat: 'ORBAT',
+        orbatPanel: 'ORBAT Manager',
+        orbatFilter: 'Filter Units',
+        addUnit: 'Add Unit',
+        addSide: 'Add Side',
+        addGroup: 'Add Group',
+        deployUnits: 'Deploy to Map',
+        expandAll: 'Expand All',
+        collapseAll: 'Collapse All',
+        importOrbat: 'Import ORBAT',
+        exportOrbat: 'Export ORBAT'
     },
     de_CH: {
         maps: 'Karten',
@@ -120,7 +142,18 @@ const translations = {
         print: 'Drucken',
         mapCompare: 'Kartenvergleich',
         view3d: '3D Ansicht',
-        overviewMap: 'Übersichtskarte'
+        overviewMap: 'Übersichtskarte',
+        orbat: 'ORBAT',
+        orbatPanel: 'ORBAT-Manager',
+        orbatFilter: 'Einheiten filtern',
+        addUnit: 'Einheit hinzufügen',
+        addSide: 'Seite hinzufügen',
+        addGroup: 'Gruppe hinzufügen',
+        deployUnits: 'Auf Karte bereitstellen',
+        expandAll: 'Alle erweitern',
+        collapseAll: 'Alle reduzieren',
+        importOrbat: 'ORBAT importieren',
+        exportOrbat: 'ORBAT exportieren'
     },
     fr_FR: {
         maps: 'Cartes',
@@ -158,7 +191,18 @@ const translations = {
         print: 'Imprimer',
         mapCompare: 'Comparer cartes',
         view3d: 'Vue 3D',
-        overviewMap: 'Vue d\'ensemble'
+        overviewMap: 'Vue d\'ensemble',
+        orbat: 'ORBAT',
+        orbatPanel: 'Gestionnaire ORBAT',
+        orbatFilter: 'Filtrer unités',
+        addUnit: 'Ajouter unité',
+        addSide: 'Ajouter camp',
+        addGroup: 'Ajouter groupe',
+        deployUnits: 'Déployer sur carte',
+        expandAll: 'Tout développer',
+        collapseAll: 'Tout réduire',
+        importOrbat: 'Importer ORBAT',
+        exportOrbat: 'Exporter ORBAT'
     },
     it_IT: {
         maps: 'Mappe',
@@ -196,7 +240,18 @@ const translations = {
         print: 'Stampa',
         mapCompare: 'Confronta mappe',
         view3d: 'Vista 3D',
-        overviewMap: 'Mappa panoramica'
+        overviewMap: 'Mappa panoramica',
+        orbat: 'ORBAT',
+        orbatPanel: 'Gestione ORBAT',
+        orbatFilter: 'Filtra unità',
+        addUnit: 'Aggiungi unità',
+        addSide: 'Aggiungi fazione',
+        addGroup: 'Aggiungi gruppo',
+        deployUnits: 'Dispiega su mappa',
+        expandAll: 'Espandi tutto',
+        collapseAll: 'Comprimi tutto',
+        importOrbat: 'Importa ORBAT',
+        exportOrbat: 'Esporta ORBAT'
     }
 };
 
@@ -295,6 +350,38 @@ const ribbonContent = {
             tools: [
                 { id: 'edit-redlining', icon: 'polygon', label: 'Edit Features', size: 'normal' },
                 { id: 'delete-items', icon: 'text', label: 'Delete', size: 'normal' }
+            ]
+        }
+    ],
+    orbat: [
+        {
+            label: 'ORBAT',
+            tools: [
+                { id: 'orbat-panel', icon: 'orgChart', label: 'orbatPanel', size: 'large', panel: 'left' },
+                { id: 'orbat-filter', icon: 'filter', label: 'orbatFilter', size: 'normal' }
+            ]
+        },
+        {
+            label: 'Units',
+            tools: [
+                { id: 'add-unit', icon: 'group', label: 'addUnit', size: 'normal' },
+                { id: 'add-side', icon: 'side', label: 'addSide', size: 'normal' },
+                { id: 'add-group', icon: 'orgChart', label: 'addGroup', size: 'normal' }
+            ]
+        },
+        {
+            label: 'Operations',
+            tools: [
+                { id: 'deploy-units', icon: 'deploy', label: 'deployUnits', size: 'large' },
+                { id: 'expand-all', icon: 'expand', label: 'expandAll', size: 'normal' },
+                { id: 'collapse-all', icon: 'collapse', label: 'collapseAll', size: 'normal' }
+            ]
+        },
+        {
+            label: 'Import/Export',
+            tools: [
+                { id: 'import-orbat', icon: 'upload', label: 'importOrbat', size: 'normal' },
+                { id: 'export-orbat', icon: 'download', label: 'exportOrbat', size: 'normal' }
             ]
         }
     ],
@@ -444,6 +531,188 @@ const panelTemplates = {
                     baseLayer.setSource(newSource);
                     
                     console.log('Changed basemap to:', layerId);
+                }
+            </script>
+        `
+    },
+    orbat: {
+        title: 'ORBAT Manager',
+        content: `
+            <div class="panel-section">
+                <div class="orbat-toolbar">
+                    <button class="btn-small" onclick="addOrbatUnit()">➕ Add Unit</button>
+                    <button class="btn-small" onclick="addOrbatSide()">👥 Add Side</button>
+                    <button class="btn-small" onclick="deployOrbat()">🚀 Deploy</button>
+                </div>
+            </div>
+            <div class="panel-section">
+                <h4>Sides</h4>
+                <div class="orbat-sides">
+                    <div class="orbat-side active" data-side="blue" onclick="selectSide('blue', this)">
+                        <div class="side-color" style="background: #3b82f6;"></div>
+                        <span>Blue Forces</span>
+                        <span class="unit-count">3 units</span>
+                    </div>
+                    <div class="orbat-side" data-side="red" onclick="selectSide('red', this)">
+                        <div class="side-color" style="background: #ef4444;"></div>
+                        <span>Red Forces</span>
+                        <span class="unit-count">2 units</span>
+                    </div>
+                </div>
+            </div>
+            <div class="panel-section">
+                <h4>Unit Hierarchy</h4>
+                <div class="orbat-tree">
+                    <div class="orbat-unit" data-level="0">
+                        <span class="unit-expand">▼</span>
+                        <div class="unit-symbol" style="border-color: #3b82f6;">XXX</div>
+                        <span class="unit-name">1st Infantry Division</span>
+                        <span class="unit-actions">
+                            ${icons.eye}
+                        </span>
+                    </div>
+                    <div class="orbat-unit" data-level="1" style="margin-left: 20px;">
+                        <span class="unit-expand">▼</span>
+                        <div class="unit-symbol" style="border-color: #3b82f6;">XX</div>
+                        <span class="unit-name">1st Brigade</span>
+                        <span class="unit-actions">
+                            ${icons.eye}
+                        </span>
+                    </div>
+                    <div class="orbat-unit" data-level="2" style="margin-left: 40px;">
+                        <span class="unit-expand">-</span>
+                        <div class="unit-symbol" style="border-color: #3b82f6;">X</div>
+                        <span class="unit-name">Alpha Battalion</span>
+                        <span class="unit-actions">
+                            ${icons.eye}
+                        </span>
+                    </div>
+                    <div class="orbat-unit" data-level="2" style="margin-left: 40px;">
+                        <span class="unit-expand">-</span>
+                        <div class="unit-symbol" style="border-color: #3b82f6;">X</div>
+                        <span class="unit-name">Bravo Battalion</span>
+                        <span class="unit-actions">
+                            ${icons.eye}
+                        </span>
+                    </div>
+                    <div class="orbat-unit" data-level="1" style="margin-left: 20px;">
+                        <span class="unit-expand">-</span>
+                        <div class="unit-symbol" style="border-color: #3b82f6;">XX</div>
+                        <span class="unit-name">2nd Brigade</span>
+                        <span class="unit-actions">
+                            ${icons.eye}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <style>
+                .orbat-toolbar {
+                    display: flex;
+                    gap: 8px;
+                    margin-bottom: 12px;
+                }
+                .btn-small {
+                    padding: 6px 12px;
+                    font-size: 12px;
+                    border: 1px solid #dee2e6;
+                    background: white;
+                    border-radius: 4px;
+                    cursor: pointer;
+                }
+                .btn-small:hover {
+                    background: #f8f9fa;
+                }
+                .orbat-sides {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                }
+                .orbat-side {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 8px;
+                    border: 2px solid transparent;
+                    border-radius: 6px;
+                    cursor: pointer;
+                }
+                .orbat-side:hover {
+                    background: #f8f9fa;
+                }
+                .orbat-side.active {
+                    background: #e7f1ff;
+                    border-color: var(--secondary-color);
+                }
+                .side-color {
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 4px;
+                }
+                .unit-count {
+                    margin-left: auto;
+                    font-size: 12px;
+                    color: #6c757d;
+                }
+                .orbat-tree {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                }
+                .orbat-unit {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 6px 8px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                }
+                .orbat-unit:hover {
+                    background: #f8f9fa;
+                }
+                .unit-expand {
+                    font-size: 10px;
+                    width: 16px;
+                    text-align: center;
+                }
+                .unit-symbol {
+                    width: 28px;
+                    height: 28px;
+                    border: 2px solid;
+                    border-radius: 2px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 10px;
+                    font-weight: bold;
+                    background: white;
+                }
+                .unit-name {
+                    flex: 1;
+                    font-size: 13px;
+                }
+                .unit-actions {
+                    width: 20px;
+                    height: 20px;
+                    opacity: 0.6;
+                }
+                .unit-actions:hover {
+                    opacity: 1;
+                }
+            </style>
+            <script>
+                function selectSide(side, element) {
+                    document.querySelectorAll('.orbat-side').forEach(s => s.classList.remove('active'));
+                    element.classList.add('active');
+                    console.log('Selected side:', side);
+                }
+                function addOrbatUnit() {
+                    console.log('Add ORBAT unit');
+                }
+                function addOrbatSide() {
+                    console.log('Add ORBAT side');
+                }
+                function deployOrbat() {
+                    console.log('Deploy ORBAT units to map');
                 }
             </script>
         `
@@ -812,27 +1081,6 @@ function renderRibbonContent(tabId) {
             </div>
         `;
     });
-    
-    // Add Edit Mode Switcher at the end
-    html += `
-        <div class="ribbon-group ribbon-mode-switcher-group">
-            <div class="ribbon-group-tools edit-mode-switcher">
-                <button class="mode-btn ${currentEditMode === 'map' ? 'active' : ''}" onclick="switchEditMode('map')" title="Map Edit Mode">
-                    <div class="ribbon-tool-icon">🗺️</div>
-                    <div class="ribbon-tool-label">Mappa</div>
-                </button>
-                <button class="mode-btn ${currentEditMode === 'grid' ? 'active' : ''}" onclick="switchEditMode('grid')" title="Grid Edit Mode">
-                    <div class="ribbon-tool-icon">📋</div>
-                    <div class="ribbon-tool-label">Griglia</div>
-                </button>
-                <button class="mode-btn ${currentEditMode === 'chart' ? 'active' : ''}" onclick="switchEditMode('chart')" title="Chart Edit Mode">
-                    <div class="ribbon-tool-icon">📊</div>
-                    <div class="ribbon-tool-label">Organigramma</div>
-                </button>
-            </div>
-            <div class="ribbon-group-label">Edit Mode</div>
-        </div>
-    `;
     
     container.innerHTML = html;
 }

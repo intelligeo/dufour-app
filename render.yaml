@@ -22,7 +22,7 @@ services:
       - key: POSTGIS_USER
         value: intelligeo_dufour
       - key: POSTGIS_PASSWORD
-        sync: false  # Configure manually in Render dashboard (Secret: Dufour.00r)
+        sync: false  # Configure manually in Render dashboard
       - key: QGIS_SERVER_URL
         value: http://localhost:8080  # QGIS Server embedded on port 8080
       - key: LOG_LEVEL
