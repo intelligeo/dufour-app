@@ -25,11 +25,11 @@ RUN apt-get update && apt-get install -y \
 
 # Install Python dependencies for API
 WORKDIR /app
-COPY requirements.txt .
+COPY backend/api/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY backend/api/ .
 
 # Create directories
 RUN mkdir -p /tmp/qgis_projects /var/log/qgis

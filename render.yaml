@@ -7,7 +7,6 @@ services:
     name: dufour-api
     runtime: docker
     dockerfilePath: ./backend/api/Dockerfile
-    dockerContext: ./backend/api
     repo: https://github.com/mlanini/dufour-app
     branch: main
     region: frankfurt
