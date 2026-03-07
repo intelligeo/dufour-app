@@ -10,7 +10,10 @@ import { get as getProjection } from 'ol/proj';
 import { getWidth, getTopLeft } from 'ol/extent';
 
 // SwissTopo WMTS configuration
-const SWISSTOPO_WMTS_URL = 'https://wmts.geo.admin.ch/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.{Format}';
+// Use proxy in development to avoid CORS issues
+const isDev = import.meta.env.DEV;
+const WMTS_BASE = isDev ? '/wmts' : 'https://wmts.geo.admin.ch';
+const SWISSTOPO_WMTS_URL = `${WMTS_BASE}/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.{Format}`;
 
 // Web Mercator projection extent
 const projection = getProjection('EPSG:3857');
@@ -53,7 +56,7 @@ export const swissBaseLayers = [
       fr_FR: 'Carte nationale suisse en couleur',
       it_IT: 'Carta nazionale svizzera a colori'
     },
-    thumbnail: 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/8/134/181.jpeg',
+    thumbnail: `${WMTS_BASE}/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/8/134/181.jpeg`,
     type: 'base',
     format: 'jpeg',
     maxZoom: 19,
@@ -73,7 +76,7 @@ export const swissBaseLayers = [
       fr_FR: 'Carte nationale suisse en gris',
       it_IT: 'Carta nazionale svizzera in scala di grigi'
     },
-    thumbnail: 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/8/134/181.jpeg',
+    thumbnail: `${WMTS_BASE}/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/8/134/181.jpeg`,
     type: 'base',
     format: 'jpeg',
     maxZoom: 19,
@@ -93,7 +96,7 @@ export const swissBaseLayers = [
       fr_FR: 'Imagerie aérienne haute résolution (résolution 10cm)',
       it_IT: 'Immagini aeree ad alta risoluzione (risoluzione 10cm)'
     },
-    thumbnail: 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/8/134/181.jpeg',
+    thumbnail: `${WMTS_BASE}/1.0.0/ch.swisstopo.swissimage/default/current/3857/8/134/181.jpeg`,
     type: 'base',
     format: 'jpeg',
     maxZoom: 19,
@@ -113,7 +116,7 @@ export const swissBaseLayers = [
       fr_FR: 'Carte nationale suisse optimisée pour les sports d\'hiver',
       it_IT: 'Carta nazionale svizzera ottimizzata per gli sport invernali'
     },
-    thumbnail: 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe-winter/default/current/3857/8/134/181.jpeg',
+    thumbnail: `${WMTS_BASE}/1.0.0/ch.swisstopo.pixelkarte-farbe-winter/default/current/3857/8/134/181.jpeg`,
     type: 'base',
     format: 'jpeg',
     maxZoom: 17,
@@ -229,7 +232,7 @@ export function createSwissLayer(layerConfig, options = {}) {
   const tileGrid = createSwissTileGrid();
   
   // Create custom tile URL function following geo.admin.ch REST API format
-  // Format: https://wmts.geo.admin.ch/1.0.0/{Layer}/default/{Time}/{TileMatrixSet}/{TileMatrix}/{TileCol}/{TileRow}.{Format}
+  // Format: {WMTS_BASE}/1.0.0/{Layer}/default/{Time}/{TileMatrixSet}/{TileMatrix}/{TileCol}/{TileRow}.{Format}
   // Note: For EPSG:3857, use standard col/row order (not row/col like EPSG:21781)
   const tileUrlFunction = (tileCoord) => {
     if (!tileCoord) return undefined;
@@ -239,7 +242,7 @@ export function createSwissLayer(layerConfig, options = {}) {
     const y = tileCoord[2];      // TileRow
     
     // SwissTopo WMTS REST API: TileMatrix/TileCol/TileRow order for EPSG:3857
-    return `https://wmts.geo.admin.ch/1.0.0/${layerConfig.id}/default/current/3857/${z}/${x}/${y}.${layerConfig.format}`;
+    return `${WMTS_BASE}/1.0.0/${layerConfig.id}/default/current/3857/${z}/${x}/${y}.${layerConfig.format}`;
   };
 
   const source = new WMTS({

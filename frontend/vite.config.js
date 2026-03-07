@@ -25,6 +25,19 @@ export default defineConfig({
         target: process.env.VITE_API_URL || 'http://localhost:3000',
         changeOrigin: true,
       },
+      // Proxy geo.admin.ch to avoid CORS issues
+      '/wmts': {
+        target: 'https://wmts.geo.admin.ch',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/wmts/, ''),
+        secure: true,
+      },
+      '/api3-geo': {
+        target: 'https://api3.geo.admin.ch',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api3-geo/, ''),
+        secure: true,
+      },
     },
   },
   build: {
