@@ -134,7 +134,17 @@ export default {
       'ImportLayer',
       'Search',
       'Settings'
-    ]
+    ],
+    // Optional plugins (can be enabled/disabled by users)
+    optional: {
+      orbat: {
+        enabled: true,
+        name: 'ORBAT Manager',
+        description: 'Military unit organization and battle order management',
+        category: 'military',
+        icon: '🎖️'
+      }
+    }
   },
 
   // Service URLs

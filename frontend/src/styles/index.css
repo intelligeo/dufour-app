@@ -1,5 +1,8 @@
 /* Base styles for dufour.app */
 
+/* Import component styles */
+@import './project-selector.css';
+
 :root {
   /* KADAS-inspired color scheme */
   --primary-color: #2c3e50;
@@ -158,9 +161,6 @@ button:disabled {
     --font-size-xl: 18px;
   }
 }
-
-/* Import component styles */
-@import './project-selector.css';
 
 /* Print styles */
 @media print {

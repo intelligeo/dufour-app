@@ -4,6 +4,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import appConfig from '../config/appConfig';
 import '../styles/ribbon.css';
 
 const RibbonToolbar = ({ onToolSelect }) => {
@@ -12,16 +13,29 @@ const RibbonToolbar = ({ onToolSelect }) => {
   const locale = useSelector(state => state.locale?.current || 'en-US');
   const activeTool = useSelector(state => state.task?.id);
 
+  // Check if optional plugins are enabled
+  const isPluginEnabled = (pluginKey) => {
+    const saved = localStorage.getItem('pluginStates');
+    if (saved) {
+      const states = JSON.parse(saved);
+      return states[pluginKey] !== undefined ? states[pluginKey] : appConfig.plugins.optional?.[pluginKey]?.enabled;
+    }
+    return appConfig.plugins.optional?.[pluginKey]?.enabled || false;
+  };
+
   // KADAS-style tabs: Maps/View/Analysis/Draw/GPS/Settings
-  const tabs = [
+  // Filter tabs based on plugin settings
+  const allTabs = [
     { id: 'maps', label: { 'en-US': 'Maps', 'de-CH': 'Karten', 'fr-FR': 'Cartes', 'it-IT': 'Mappe' } },
     { id: 'view', label: { 'en-US': 'View', 'de-CH': 'Ansicht', 'fr-FR': 'Vue', 'it-IT': 'Vista' } },
     { id: 'analysis', label: { 'en-US': 'Analysis', 'de-CH': 'Analyse', 'fr-FR': 'Analyse', 'it-IT': 'Analisi' } },
     { id: 'draw', label: { 'en-US': 'Draw', 'de-CH': 'Zeichnen', 'fr-FR': 'Dessiner', 'it-IT': 'Disegna' } },
-    { id: 'orbat', label: { 'en-US': 'ORBAT', 'de-CH': 'ORBAT', 'fr-FR': 'ORBAT', 'it-IT': 'ORBAT' } },
+    { id: 'orbat', label: { 'en-US': 'ORBAT', 'de-CH': 'ORBAT', 'fr-FR': 'ORBAT', 'it-IT': 'ORBAT' }, plugin: 'orbat' },
     { id: 'gps', label: { 'en-US': 'GPS', 'de-CH': 'GPS', 'fr-FR': 'GPS', 'it-IT': 'GPS' } },
     { id: 'settings', label: { 'en-US': 'Settings', 'de-CH': 'Einstellungen', 'fr-FR': 'Paramètres', 'it-IT': 'Impostazioni' } }
   ];
+
+  const tabs = allTabs.filter(tab => !tab.plugin || isPluginEnabled(tab.plugin));
 
   const tools = {
     // MAPS TAB - Layers, Background, Search, Identify

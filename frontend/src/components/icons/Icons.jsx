@@ -296,6 +296,8 @@ export default {
   MenuIcon,
   TrashIcon,
   AlertIcon,
+  CheckCircleIcon,
+  AlertCircleIcon,
   PlusIcon,
   MinusIcon,
   UploadIcon,
