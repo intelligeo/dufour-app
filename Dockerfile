@@ -30,6 +30,11 @@ COPY nginx/nginx-render.conf /etc/nginx/nginx.conf
 # Copy built frontend from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+# Create cache directory for nginx proxy cache
+RUN mkdir -p /var/cache/nginx && \
+    chown -R nginx:nginx /var/cache/nginx && \
+    chmod -R 755 /var/cache/nginx
+
 # Add health check script
 RUN echo '#!/bin/sh' > /healthcheck.sh && \
     echo 'wget -q --spider http://localhost/ || exit 1' >> /healthcheck.sh && \
