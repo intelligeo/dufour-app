@@ -62,7 +62,6 @@ build/
 *.tmp
 *.temp
 
-# Temporary md
-*.md
+# Temporary directories
 tmp_md/
 check_and_init_db.py
