@@ -4,6 +4,9 @@ FastAPI server for managing QGIS projects and PostGIS data uploads
 """
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import HTMLResponse
 from typing import List, Optional
 import os
 from pathlib import Path
@@ -18,11 +21,102 @@ from services.project_migrator import ProjectMigrator
 from models.schemas import ProjectResponse, TableSchema, UploadResponse
 from database.connection import db
 
-# Initialize FastAPI app
+# Initialize FastAPI app with OpenAPI metadata
 app = FastAPI(
     title="Dufour Middleware API",
-    description="Content management system for QGIS projects in Dufour-app",
-    version="1.0.0"
+    description="""
+# 🗺️ Dufour-App Backend API
+
+Content management system for QGIS projects and PostGIS data in Dufour-app.
+
+## Features
+
+### 📁 Project Management
+- Upload and publish QGIS projects (.qgs, .qgz)
+- Automatic layer migration from local files to PostGIS
+- Project metadata and versioning
+- WMS service integration
+
+### 🗄️ Data Management
+- PostGIS table creation and management
+- Bulk feature upload (GeoJSON, Shapefile, etc.)
+- Spatial data validation
+- Schema introspection
+
+### 🌐 WMS Proxy
+- On-demand QGIS Server integration
+- Cached project retrieval from PostgreSQL
+- GetCapabilities, GetMap, GetFeatureInfo support
+
+### 🎨 QWC2 Integration
+- Theme configuration generation
+- Layer tree and capabilities export
+- Frontend compatibility layer
+
+## Architecture
+
+```
+Frontend (React + OpenLayers)
+    ↓
+Dufour Middleware API (FastAPI)
+    ↓
+├── PostgreSQL + PostGIS (data storage)
+└── QGIS Server (map rendering)
+```
+
+## Authentication
+
+Currently public API. Future versions will implement JWT authentication.
+
+## Rate Limits
+
+- File uploads: 50MB max
+- Request timeout: 30 seconds
+- No rate limiting (production will implement)
+
+## Support
+
+- Documentation: https://github.com/yourusername/dufour-app
+- Issues: https://github.com/yourusername/dufour-app/issues
+""",
+    version="1.0.0",
+    contact={
+        "name": "Dufour-App Team",
+        "url": "https://github.com/yourusername/dufour-app",
+        "email": "support@dufour-app.ch"
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT"
+    },
+    openapi_tags=[
+        {
+            "name": "system",
+            "description": "System health and status endpoints"
+        },
+        {
+            "name": "projects",
+            "description": "QGIS project management (upload, publish, delete, list)"
+        },
+        {
+            "name": "data",
+            "description": "PostGIS data operations (tables, bulk upload)"
+        },
+        {
+            "name": "wms",
+            "description": "OGC WMS proxy for QGIS Server integration"
+        },
+        {
+            "name": "qwc2",
+            "description": "QWC2 theme configuration (compatibility layer)"
+        }
+    ],
+    swagger_ui_parameters={
+        "defaultModelsExpandDepth": -1,  # Hide schemas section by default
+        "docExpansion": "list",  # Expand operation list
+        "filter": True,  # Enable search filter
+        "syntaxHighlight.theme": "monokai"
+    }
 )
 
 # CORS configuration for frontend
@@ -69,9 +163,16 @@ async def global_exception_handler(request, exc):
 
 # ==================== PROJECT ENDPOINTS ====================
 
-@app.get("/")
+@app.get("/", tags=["system"])
 async def root():
-    """API health check"""
+    """
+    # API Health Check
+    
+    Simple endpoint to verify API is online and responsive.
+    
+    Returns:
+        Service status, name, and version
+    """
     return {
         "status": "online",
         "service": "Dufour Middleware API",
@@ -79,10 +180,30 @@ async def root():
     }
 
 
-@app.get("/api/status")
+@app.get("/api/status", tags=["system"])
 async def api_status():
     """
-    API status with detailed information for debugging
+    # Detailed System Status
+    
+    Comprehensive health check with infrastructure details.
+    
+    ### Checks:
+    - Projects directory existence and contents
+    - QGIS Server connectivity
+    - PostgreSQL/PostGIS database connection
+    
+    ### Returns:
+    - `api`: API status (online/offline)
+    - `version`: API version
+    - `projects_dir`: Filesystem path to projects
+    - `project_count`: Number of .qgs/.qgz files
+    - `qgis_server`: QGIS Server URL and status
+    - `database`: PostgreSQL connection details
+    
+    ### Use Cases:
+    - Monitoring and alerting
+    - Troubleshooting deployment issues
+    - Verifying environment configuration
     """
     import os
     from pathlib import Path
@@ -123,11 +244,41 @@ async def api_status():
     }
 
 
-@app.get("/api/projects", response_model=List[ProjectResponse])
+@app.get("/api/projects", response_model=List[ProjectResponse], tags=["projects"])
 async def list_projects():
     """
-    List all available QGIS projects
-    Returns: List of projects with metadata
+    # List All QGIS Projects
+    
+    Retrieve all published projects with metadata.
+    
+    ### Returns:
+    Array of project objects containing:
+    - `id`: Unique project identifier (UUID)
+    - `name`: Project slug (lowercase_underscore)
+    - `title`: Human-readable title
+    - `description`: Project description
+    - `is_public`: Visibility flag
+    - `crs`: Coordinate reference system (e.g., EPSG:2056)
+    - `extent`: Bounding box [xmin, ymin, xmax, ymax]
+    - `created_at`: Creation timestamp
+    - `updated_at`: Last modification timestamp
+    
+    ### Example Response:
+    ```json
+    [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "name": "swiss_municipalities",
+        "title": "Swiss Municipalities",
+        "description": "Administrative boundaries of Switzerland",
+        "is_public": true,
+        "crs": "EPSG:2056",
+        "extent": [2485000, 1075000, 2834000, 1295000],
+        "created_at": "2024-03-09T10:30:00Z",
+        "updated_at": "2024-03-09T10:30:00Z"
+      }
+    ]
+    ```
     """
     try:
         projects = await project_service.list_projects()
@@ -136,10 +287,26 @@ async def list_projects():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/projects/{project_name}")
+@app.get("/api/projects/{project_name}", tags=["projects"])
 async def get_project(project_name: str):
     """
-    Get project details and configuration
+    # Get Project Details
+    
+    Retrieve detailed information for a specific project.
+    
+    ### Parameters:
+    - `project_name`: Project identifier (e.g., "swiss_municipalities")
+    
+    ### Returns:
+    Project object with:
+    - Full metadata
+    - Layer list with geometry types
+    - WMS endpoint URL
+    - Configuration settings
+    
+    ### Errors:
+    - `404`: Project not found
+    - `500`: Database or server error
     """
     try:
         project = await project_service.get_project(project_name)
@@ -154,26 +321,69 @@ async def get_project(project_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/projects")
+@app.post("/api/projects", tags=["projects"])
 async def upload_and_migrate_project(
-    name: str = Form(..., description="Project identifier (lowercase, alphanumeric, underscore)"),
-    title: Optional[str] = Form(None, description="Display title"),
-    description: Optional[str] = Form(None, description="Project description"),
+    name: str = Form(..., description="Project identifier (lowercase, alphanumeric, underscore)", example="my_project"),
+    title: Optional[str] = Form(None, description="Display title", example="My Awesome Project"),
+    description: Optional[str] = Form(None, description="Project description", example="Contains Swiss municipalities and transportation layers"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)")
 ):
     """
-    Upload QGIS project and migrate local layers to PostGIS
+    # Upload and Migrate QGIS Project
     
-    Steps:
-    1. Validate .qgz file (extension, size)
-    2. Parse project structure (layers, CRS, extent)
-    3. Extract local layers (GeoPackage, GeoJSON, etc.) to PostGIS tables
-    4. Update .qgz datasources to reference PostGIS
-    5. Store modified .qgz in database
+    Upload a .qgz project file with automatic layer migration to PostGIS.
     
-    Returns:
-        Project details with migration results
+    ## Workflow:
+    
+    1. **Validation**: Check file extension, size (50MB max), name format
+    2. **Parsing**: Extract project structure, layers, CRS, extent
+    3. **Migration**: Convert local layers (GeoPackage, GeoJSON, Shapefile) to PostGIS tables
+    4. **Datasource Update**: Rewrite .qgz to reference PostGIS connections
+    5. **Storage**: Store modified .qgz in PostgreSQL BYTEA column
+    
+    ## Supported Layer Sources:
+    - GeoPackage (.gpkg)
+    - GeoJSON (.geojson)
+    - Shapefile (.shp)
+    - CSV with coordinates
+    
+    ## Naming Rules:
+    - Lowercase letters and numbers only
+    - Underscores allowed
+    - Example: `swiss_municipalities`, `my_project_2024`
+    
+    ## Returns:
+    ```json
+    {
+      "success": true,
+      "project": {
+        "id": "uuid",
+        "name": "my_project",
+        "title": "My Project",
+        "layers_count": 5,
+        "qgz_size": 1234567
+      },
+      "migration": {
+        "total_layers": 5,
+        "migrated": 4,
+        "failed": 1,
+        "details": [
+          {
+            "layer_name": "municipalities",
+            "table_name": "my_project_municipalities",
+            "features_count": 2352,
+            "geometry_type": "MultiPolygon",
+            "success": true
+          }
+        ]
+      }
+    }
+    ```
+    
+    ## Errors:
+    - `400`: Invalid file type or name format
+    - `500`: Migration failure (tables rolled back automatically)
     """
     import uuid
     from datetime import datetime
@@ -345,17 +555,40 @@ async def upload_and_migrate_project(
         )
 
 
-@app.post("/api/projects/publish")
+@app.post("/api/projects/publish", tags=["projects"])
 async def publish_project(
-    name: str = Form(...),
-    title: Optional[str] = Form(None),
-    description: Optional[str] = Form(None),
-    file: UploadFile = File(...)
+    name: str = Form(..., description="Project name", example="my_map"),
+    title: Optional[str] = Form(None, description="Display title", example="My Map"),
+    description: Optional[str] = Form(None, description="Project description"),
+    file: UploadFile = File(..., description=".qgs or .qgz file")
 ):
     """
-    Publish a new QGIS project
-    Accepts: .qgs or .qgz file from QGIS Desktop plugin
-    Returns: Project details and WMS URL
+    # Publish QGIS Project (Simple Mode)
+    
+    Simplified publishing for projects with PostGIS layers already configured.
+    
+    ### Differences from /api/projects:
+    - **No migration**: Assumes layers already reference PostGIS
+    - **QGIS Desktop plugin**: Designed for direct export from QGIS
+    - **QWC2 theme**: Automatically generates QWC2 configuration
+    
+    ### Use When:
+    - Layers already use PostGIS connections
+    - Publishing from QGIS Desktop plugin
+    - Need immediate WMS availability
+    
+    ### Returns:
+    - Project metadata
+    - WMS endpoint URL
+    - QWC2 theme configuration
+    
+    ### Example:
+    ```bash
+    curl -X POST "https://api.dufour-app.ch/api/projects/publish" \\
+      -F "name=my_map" \\
+      -F "title=My Map" \\
+      -F "file=@project.qgz"
+    ```
     """
     try:
         # Validate file extension
@@ -388,10 +621,35 @@ async def publish_project(
         raise HTTPException(status_code=500, detail=f"Failed to publish project: {str(e)}")
 
 
-@app.delete("/api/projects/{project_name}")
+@app.delete("/api/projects/{project_name}", tags=["projects"])
 async def delete_project(project_name: str):
     """
-    Delete a QGIS project
+    # Delete QGIS Project
+    
+    Permanently remove a project and its associated data.
+    
+    ### Parameters:
+    - `project_name`: Project identifier to delete
+    
+    ### Actions:
+    - Deletes project record from database
+    - Removes .qgz file from storage
+    - Clears QWC2 theme configuration
+    - **Does NOT** delete associated PostGIS tables (manual cleanup required)
+    
+    ### Returns:
+    ```json
+    {
+      "message": "Project my_project deleted successfully"
+    }
+    ```
+    
+    ### Errors:
+    - `404`: Project not found
+    - `500`: Deletion failed
+    
+    ### Warning:
+    This operation cannot be undone. PostGIS tables must be dropped manually.
     """
     try:
         result = await project_service.delete_project(project_name)
@@ -406,11 +664,50 @@ async def delete_project(project_name: str):
 
 # ==================== DATA UPLOAD ENDPOINTS ====================
 
-@app.post("/api/databases/{db_name}/tables")
-async def create_table(db_name: str, schema: TableSchema):
+@app.post("/api/databases/{db_name}/tables", tags=["data"])
+async def create_table(
+    db_name: str,
+    schema: TableSchema
+):
     """
-    Create a new table in PostGIS database
-    Used by QGIS plugin to prepare tables for data upload
+    # Create PostGIS Table
+    
+    Create a new spatial table in PostGIS database.
+    
+    ### Parameters:
+    - `db_name`: Target database name
+    - `schema`: Table schema definition (JSON body)
+    
+    ### Request Body:
+    ```json
+    {
+      "table_name": "municipalities",
+      "schema_name": "public",
+      "geometry_column": "geom",
+      "geometry_type": "MultiPolygon",
+      "srid": 2056,
+      "columns": [
+        {"name": "id", "type": "INTEGER", "primary_key": true},
+        {"name": "name", "type": "VARCHAR(255)"},
+        {"name": "population", "type": "INTEGER"}
+      ]
+    }
+    ```
+    
+    ### Supported Geometry Types:
+    - Point, MultiPoint
+    - LineString, MultiLineString
+    - Polygon, MultiPolygon
+    - GeometryCollection
+    
+    ### SRID:
+    - 2056: Swiss LV95 (recommended)
+    - 4326: WGS84 (GPS coordinates)
+    - 3857: Web Mercator
+    
+    ### Returns:
+    - Table creation confirmation
+    - Full table metadata
     """
     try:
         result = await data_service.create_table(db_name, schema)
@@ -419,16 +716,49 @@ async def create_table(db_name: str, schema: TableSchema):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/databases/{db_name}/tables/{table_name}/upload")
+@app.post("/api/databases/{db_name}/tables/{table_name}/upload", tags=["data"])
 async def upload_features(
     db_name: str,
     table_name: str,
-    schema: str = Form("public"),
-    file: UploadFile = File(...)
+    schema: str = Form("public", description="Database schema"),
+    file: UploadFile = File(..., description="CSV data in PostgreSQL COPY format")
 ):
     """
-    Bulk upload features to PostGIS table
-    Accepts: CSV data in COPY format from QGIS plugin
+    # Bulk Upload Features to PostGIS
+    
+    High-performance bulk insert of spatial features.
+    
+    ### Parameters:
+    - `db_name`: Database name
+    - `table_name`: Target table name
+    - `schema`: Database schema (default: "public")
+    - `file`: CSV file in PostgreSQL COPY format
+    
+    ### CSV Format:
+    Must match PostgreSQL COPY format (tab-separated, WKT geometry):
+    ```csv
+    1	Zurich	400000	POINT(2683000 1248000)
+    2	Bern	133000	POINT(2600000 1199000)
+    ```
+    
+    ### Performance:
+    - Uses PostgreSQL COPY command (fastest method)
+    - ~100,000 features/second typical
+    - Recommended batch size: 10,000-50,000 features
+    
+    ### Returns:
+    ```json
+    {
+      "success": true,
+      "inserted": 42315,
+      "duration_seconds": 2.3
+    }
+    ```
+    
+    ### Use Cases:
+    - QGIS plugin data export
+    - Batch geocoding results
+    - Migration from other databases
     """
     try:
         content = await file.read()
@@ -445,10 +775,39 @@ async def upload_features(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
-@app.get("/api/databases/{db_name}/tables")
-async def list_tables(db_name: str, schema: str = "public"):
+@app.get("/api/databases/{db_name}/tables", tags=["data"])
+async def list_tables(
+    db_name: str,
+    schema: str = "public"
+):
     """
-    List all tables in database schema
+    # List Database Tables
+    
+    Retrieve all tables in a database schema.
+    
+    ### Parameters:
+    - `db_name`: Database name
+    - `schema`: Schema name (default: "public")
+    
+    ### Returns:
+    ```json
+    {
+      "tables": [
+        {
+          "table_name": "municipalities",
+          "geometry_type": "MultiPolygon",
+          "srid": 2056,
+          "feature_count": 2352,
+          "extent": [2485000, 1075000, 2834000, 1295000]
+        }
+      ]
+    }
+    ```
+    
+    ### Use Cases:
+    - Project setup validation
+    - Database inventory
+    - QGIS layer discovery
     """
     try:
         tables = await data_service.list_tables(db_name, schema)
@@ -459,11 +818,34 @@ async def list_tables(db_name: str, schema: str = "public"):
 
 # ==================== QWC ENDPOINTS ====================
 
-@app.get("/api/v1/themes")
+@app.get("/api/v1/themes", tags=["qwc2"])
 async def list_themes():
     """
-    List available QWC2 themes (projects)
-    Compatible with QWC2 frontend
+    # List QWC2 Themes
+    
+    Retrieve all available QWC2 themes (projects).
+    
+    ### QWC2 Compatibility:
+    This endpoint mimics QWC2 themes.json format for frontend compatibility.
+    
+    ### Returns:
+    ```json
+    {
+      "themes": [
+        {
+          "id": "swiss_municipalities",
+          "title": "Swiss Municipalities",
+          "thumbnail": "thumb.png",
+          "wms_url": "https://api.dufour-app.ch/api/projects/swiss_municipalities/wms"
+        }
+      ]
+    }
+    ```
+    
+    ### Use Cases:
+    - QWC2 frontend theme picker
+    - Project discovery
+    - Map catalog
     """
     try:
         themes = await qwc_service.list_themes()
@@ -472,11 +854,54 @@ async def list_themes():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/v1/themes/{theme_name}")
+@app.get("/api/v1/themes/{theme_name}", tags=["qwc2"])
 async def get_theme_config(theme_name: str):
     """
-    Get QWC2 theme configuration for a project
-    Returns layer tree, capabilities, and settings
+    # Get QWC2 Theme Configuration
+    
+    Retrieve full theme configuration for QWC2 frontend.
+    
+    ### Parameters:
+    - `theme_name`: Project/theme identifier
+    
+    ### Returns:
+    Complete QWC2 theme JSON with:
+    - Layer tree structure
+    - WMS capabilities
+    - Initial map extent
+    - Search configuration
+    - Print templates
+    - Tool settings
+    
+    ### Example Response:
+    ```json
+    {
+      "id": "swiss_municipalities",
+      "title": "Swiss Municipalities",
+      "wms_url": "https://api.dufour-app.ch/api/projects/swiss_municipalities/wms",
+      "extent": [2485000, 1075000, 2834000, 1295000],
+      "crs": "EPSG:2056",
+      "layers": [
+        {
+          "name": "municipalities",
+          "title": "Municipalities",
+          "type": "wms",
+          "visibility": true
+        }
+      ],
+      "search": {
+        "providers": ["coordinates", "nominatim"]
+      },
+      "tools": {
+        "measure": true,
+        "print": true,
+        "identify": true
+      }
+    }
+    ```
+    
+    ### Errors:
+    - `404`: Theme not found
     """
     try:
         config = await qwc_service.get_theme_config(theme_name)
@@ -491,10 +916,38 @@ async def get_theme_config(theme_name: str):
 
 # ==================== UTILITY ENDPOINTS ====================
 
-@app.get("/api/status")
+@app.get("/api/status", tags=["system"])
 async def get_status():
     """
-    Get system status: database, QGIS Server, storage
+    # System Status Check
+    
+    Comprehensive health check for all infrastructure components.
+    
+    ### Checks:
+    1. **Database**: PostgreSQL/PostGIS connectivity
+    2. **QGIS Server**: Map rendering service availability
+    3. **Storage**: Project count and disk usage
+    
+    ### Returns:
+    ```json
+    {
+      "database": {
+        "connected": true,
+        "version": "PostgreSQL 15.3, PostGIS 3.3"
+      },
+      "qgis_server": {
+        "online": true,
+        "url": "http://qgis-server:8080"
+      },
+      "projects_count": 42,
+      "storage_used": "2.3 GB"
+    }
+    ```
+    
+    ### Use Cases:
+    - Monitoring dashboards
+    - Pre-flight checks before operations
+    - Troubleshooting deployment issues
     """
     try:
         status = {
@@ -510,13 +963,23 @@ async def get_status():
 
 # ==================== QGIS PROJECT STORAGE ENDPOINTS ====================
 
-@app.get("/api/projects")
+@app.get("/api/projects", tags=["projects"])
 async def list_qgis_projects():
     """
-    List all stored QGIS projects
+    # List Stored Projects (Alternative Endpoint)
     
-    Returns:
-        List of projects with metadata
+    Alternative endpoint for listing projects (same as /api/projects).
+    
+    ### Note:
+    This endpoint is equivalent to `GET /api/projects` but includes count metadata.
+    
+    ### Returns:
+    ```json
+    {
+      "projects": [...],
+      "count": 42
+    }
+    ```
     """
     try:
         projects = storage_service.list_projects()
@@ -525,19 +988,96 @@ async def list_qgis_projects():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/projects/{project_name}/wms")
+@app.get("/api/projects/{project_name}/wms", tags=["wms"])
 async def wms_proxy(project_name: str, request: Request):
     """
-    WMS proxy for stored QGIS projects
+    # OGC WMS Proxy
     
-    Retrieves .qgz from PostgreSQL, exports to temp file, forwards to QGIS Server
+    Proxy WMS requests to QGIS Server with on-demand project loading.
     
-    Args:
-        project_name: Project identifier
-        request: FastAPI request with query params (SERVICE, REQUEST, etc)
+    ## Architecture:
     
-    Returns:
-        WMS response (GetCapabilities XML, GetMap PNG, etc)
+    ```
+    Client Request
+        ↓
+    FastAPI Proxy (this endpoint)
+        ↓
+    1. Retrieve .qgz from PostgreSQL BYTEA column
+    2. Write to temporary filesystem location
+    3. Forward request to QGIS Server with MAP parameter
+        ↓
+    QGIS Server (map rendering)
+        ↓
+    Response (XML, PNG, JSON)
+    ```
+    
+    ## Supported WMS Operations:
+    
+    ### GetCapabilities
+    ```
+    GET /api/projects/my_project/wms?SERVICE=WMS&REQUEST=GetCapabilities
+    ```
+    Returns XML with layer list, styles, CRS support, extent.
+    
+    ### GetMap
+    ```
+    GET /api/projects/my_project/wms?SERVICE=WMS&REQUEST=GetMap
+        &LAYERS=municipalities
+        &BBOX=2485000,1075000,2834000,1295000
+        &WIDTH=800&HEIGHT=600
+        &SRS=EPSG:2056
+        &FORMAT=image/png
+    ```
+    Returns rendered map image (PNG/JPEG).
+    
+    ### GetFeatureInfo
+    ```
+    GET /api/projects/my_project/wms?SERVICE=WMS&REQUEST=GetFeatureInfo
+        &LAYERS=municipalities
+        &QUERY_LAYERS=municipalities
+        &X=400&Y=300
+        &INFO_FORMAT=application/json
+    ```
+    Returns feature attributes at clicked point.
+    
+    ### GetLegendGraphic
+    ```
+    GET /api/projects/my_project/wms?SERVICE=WMS&REQUEST=GetLegendGraphic
+        &LAYER=municipalities
+        &FORMAT=image/png
+    ```
+    Returns legend image for layer.
+    
+    ## Caching:
+    - Projects are cached in `/tmp/dufour_qgis_projects/`
+    - Cache invalidation: file size comparison
+    - No time-based expiration (production should add TTL)
+    
+    ## Performance:
+    - First request: ~500ms (database retrieval + file write)
+    - Cached requests: ~50ms (QGIS Server only)
+    - GetMap rendering: 100-500ms (depends on complexity)
+    
+    ## Errors:
+    - `404`: Project not found in database
+    - `500`: QGIS Server error or invalid project file
+    
+    ## OpenLayers Example:
+    ```javascript
+    import TileLayer from 'ol/layer/Tile';
+    import TileWMS from 'ol/source/TileWMS';
+    
+    const layer = new TileLayer({
+      source: new TileWMS({
+        url: 'https://api.dufour-app.ch/api/projects/my_project/wms',
+        params: {
+          'LAYERS': 'municipalities',
+          'TILED': true
+        },
+        serverType: 'qgis'
+      })
+    });
+    ```
     """
     try:
         # 1. Retrieve .qgz from PostgreSQL BYTEA

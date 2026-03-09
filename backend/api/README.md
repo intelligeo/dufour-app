@@ -2,23 +2,52 @@
 
 Backend API service per la gestione di progetti QGIS e upload dati in Dufour-app.
 
+## 📚 Documentazione Completa
+
+### 🔥 Swagger UI Interattivo (Consigliato)
+**URL:** `http://localhost:3000/docs` (dev) | `https://dufour-api.onrender.com/docs` (prod)
+
+- ✅ Esplora tutti gli endpoints
+- ✅ Prova le richieste direttamente nel browser
+- ✅ Vedi esempi di request/response
+- ✅ Valida schemi automaticamente
+
+### 📖 ReDoc (Documentazione Leggibile)
+**URL:** `http://localhost:3000/redoc` (dev) | `https://dufour-api.onrender.com/redoc` (prod)
+
+- Layout pulito a tre pannelli
+- Ottimo per leggere la documentazione
+- Formato stampabile
+
+### 📄 Guida Completa
+Vedi [API_GUIDE.md](./API_GUIDE.md) per:
+- Esempi di codice (Python, JavaScript, cURL)
+- Guida all'integrazione OpenLayers
+- Schema database
+- Configurazione environment variables
+- Troubleshooting
+
 ## 🎯 Scopo
 
 Il Middleware API funge da **Content Management System** per progetti QGIS:
-- Riceve progetti .qgs da QGIS Desktop plugin
-- Salva in QGIS Server directory
+- Riceve progetti .qgz da QGIS Desktop o upload manuale
+- Migra automaticamente layer locali a PostGIS
+- Salva progetti in PostgreSQL BYTEA
+- Fornisce WMS proxy per QGIS Server
 - Genera configurazioni QWC2 per il frontend
-- Gestisce upload dati PostGIS
-- Fornisce REST API per il frontend React
+- Gestisce upload dati PostGIS bulk
 
 ## 🏗️ Architettura
 
 ```
-QGIS Desktop Plugin → Dufour API → QGIS Server + PostGIS
-                           ↓
-                      QWC Config
-                           ↓
-                   Dufour Frontend
+QGIS Desktop Plugin / Frontend Upload
+            ↓
+    Dufour Middleware API (FastAPI)
+            ↓
+    ├── PostgreSQL + PostGIS (storage progetti e dati)
+    └── QGIS Server (rendering WMS)
+            ↓
+    Dufour Frontend (React + OpenLayers)
 ```
 
 ## 🚀 Avvio Rapido
@@ -38,11 +67,15 @@ docker-compose logs -f dufour-api
 
 L'API sarà disponibile su http://localhost:3000
 
-### Documentazione API
+### Test Health Check
 
-Una volta avviato, la documentazione interattiva è disponibile su:
-- **Swagger UI**: http://localhost:3000/docs
-- **ReDoc**: http://localhost:3000/redoc
+```bash
+# Verifica che l'API sia online
+curl http://localhost:3000/
+
+# Status dettagliato
+curl http://localhost:3000/api/status
+```
 
 ## 📡 Endpoints Principali
 
