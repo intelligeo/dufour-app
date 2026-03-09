@@ -10,9 +10,8 @@ import { get as getProjection } from 'ol/proj';
 import { getWidth, getTopLeft } from 'ol/extent';
 
 // SwissTopo WMTS configuration
-// Use proxy in development to avoid CORS issues
-const isDev = import.meta.env.DEV;
-const WMTS_BASE = isDev ? '/wmts' : 'https://wmts.geo.admin.ch';
+// Always use proxy to avoid CORS issues (both dev and production)
+const WMTS_BASE = '/wmts';
 const SWISSTOPO_WMTS_URL = `${WMTS_BASE}/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.{Format}`;
 
 // Web Mercator projection extent

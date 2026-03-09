@@ -61,8 +61,8 @@ export default {
             name: 'swisstopo_national_map',
             title: 'SwissTopo National Map',
             type: 'wmts',
-            url: 'https://wmts.geo.admin.ch/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg',
-            capabilitiesUrl: 'https://wmts.geo.admin.ch/1.0.0/WMTSCapabilities.xml',
+            url: '/wmts/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg',
+            capabilitiesUrl: '/wmts/1.0.0/WMTSCapabilities.xml',
             tileMatrixSet: '3857',
             originX: -20037508.34,
             originY: 20037508.34,
@@ -79,8 +79,8 @@ export default {
             name: 'swissimage',
             title: 'SwissImage Aerial',
             type: 'wmts',
-            url: 'https://wmts.geo.admin.ch/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg',
-            capabilitiesUrl: 'https://wmts.geo.admin.ch/1.0.0/WMTSCapabilities.xml',
+            url: '/wmts/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg',
+            capabilitiesUrl: '/wmts/1.0.0/WMTSCapabilities.xml',
             tileMatrixSet: '3857',
             originX: -20037508.34,
             originY: 20037508.34,
@@ -150,8 +150,8 @@ export default {
   // Service URLs
   services: {
     qgisServer: import.meta.env.VITE_QGIS_SERVER_URL || '/qgis',
-    searchService: 'https://api3.geo.admin.ch/rest/services/api/SearchServer',
-    elevationService: 'https://api3.geo.admin.ch/rest/services/height',
+    searchService: '/api3-geo/rest/services/api/SearchServer',
+    elevationService: '/api3-geo/rest/services/height',
     featureInfoService: '/qgis'
   },
 
@@ -166,7 +166,7 @@ export default {
     },
     geoadmin: {
       enabled: true,
-      url: 'https://api3.geo.admin.ch/rest/services/api/SearchServer',
+      url: '/api3-geo/rest/services/api/SearchServer',
       params: {
         origins: 'address,parcel',
         limit: 20

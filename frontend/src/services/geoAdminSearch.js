@@ -3,8 +3,8 @@
  * Documentation: https://api3.geo.admin.ch/services/sdiservices.html#search
  */
 
-const GEO_ADMIN_SEARCH_URL = 'https://api3.geo.admin.ch/rest/services/api/SearchServer';
-const GEO_ADMIN_LOCATIONS_URL = 'https://api3.geo.admin.ch/rest/services/api/MapServer/find';
+const GEO_ADMIN_SEARCH_URL = '/api3-geo/rest/services/api/SearchServer';
+const GEO_ADMIN_LOCATIONS_URL = '/api3-geo/rest/services/api/MapServer/find';
 
 /**
  * Search for locations, addresses, and places in Switzerland
@@ -225,7 +225,7 @@ export async function getHeightAtLocation(easting, northing) {
       sr: '2056' // LV95
     });
 
-    const response = await fetch(`https://api3.geo.admin.ch/rest/services/height?${params}`);
+    const response = await fetch(`/api3-geo/rest/services/height?${params}`);
     
     if (!response.ok) {
       throw new Error(`Height query failed: ${response.status}`);
