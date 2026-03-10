@@ -1,6 +1,9 @@
 /**
  * Military Layer for OpenLayers
  * Renders military symbols (APP-6/MIL-STD-2525) on the map
+ * 
+ * Uses milsymbol.js for client-side rendering (fast, interactive)
+ * with server-side fallback via symbolService for export/print.
  */
 
 import { Vector as VectorLayer } from 'ol/layer';
@@ -15,150 +18,83 @@ import {
   getAffiliationColor,
   getUnitLabel 
 } from '../services/militarySymbols';
+import { getMapSymbol, preloadSymbols } from '../services/symbolService';
+import appConfig from '../config/appConfig';
+
+/** Default symbol size from config */
+const SYMBOL_SIZE = appConfig.milsymbol?.defaultSize || 48;
 
 /**
- * Create military symbol style
- * Uses canvas to draw military symbols based on SIDC
+ * Create military symbol style using milsymbol.js (real NATO symbols)
+ * Replaces the old Canvas-based simplified rendering.
  */
 function createMilitarySymbolStyle(unit) {
-  const color = getAffiliationColor(unit.affiliation);
   const label = getUnitLabel(unit);
   
-  // Create canvas for symbol
-  const canvas = document.createElement('canvas');
-  const size = 64;
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  
-  // Draw symbol background (frame)
-  ctx.strokeStyle = color;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-  ctx.lineWidth = 3;
-  
-  // Symbol shape based on affiliation
-  const centerX = size / 2;
-  const centerY = size / 2;
-  const symbolSize = 28;
-  
-  switch (unit.affiliation) {
-    case 'friend': // Rectangle
-      ctx.fillRect(centerX - symbolSize/2, centerY - symbolSize/2, symbolSize, symbolSize);
-      ctx.strokeRect(centerX - symbolSize/2, centerY - symbolSize/2, symbolSize, symbolSize);
-      break;
-    case 'hostile': // Diamond
-      ctx.beginPath();
-      ctx.moveTo(centerX, centerY - symbolSize/2);
-      ctx.lineTo(centerX + symbolSize/2, centerY);
-      ctx.lineTo(centerX, centerY + symbolSize/2);
-      ctx.lineTo(centerX - symbolSize/2, centerY);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      break;
-    case 'neutral': // Square with rounded corners
-      roundRect(ctx, centerX - symbolSize/2, centerY - symbolSize/2, symbolSize, symbolSize, 4);
-      ctx.fill();
-      ctx.stroke();
-      break;
-    case 'unknown': // Clover (simplified as circle with cross)
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, symbolSize/2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      break;
-  }
-  
-  // Draw unit type icon (simplified)
-  ctx.fillStyle = color;
-  ctx.font = 'bold 16px Arial';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  
-  const typeSymbol = getTypeSymbol(unit.type);
-  ctx.fillText(typeSymbol, centerX, centerY);
-  
-  // Draw echelon indicator
-  ctx.font = 'bold 12px Arial';
-  const echelonSymbol = getEchelonSymbol(unit.echelon);
-  ctx.fillText(echelonSymbol, centerX, centerY - symbolSize/2 - 8);
-  
+  // Generate SIDC code from unit
+  const sidc = (unit.generateSIDC && typeof unit.generateSIDC === 'function')
+    ? unit.generateSIDC()
+    : unit.sidc || buildSIDCFromUnit(unit);
+
+  // Render via milsymbol.js (synchronous, client-side, cached)
+  const { dataUrl, anchor, size: symbolSize } = getMapSymbol(sidc, {
+    size: SYMBOL_SIZE,
+    uniqueDesignation: unit.designation || undefined,
+    staffComments: unit.name || undefined
+  });
+
   return new Style({
     image: new Icon({
-      img: canvas,
-      imgSize: [size, size],
-      anchor: [0.5, 0.5]
+      src: dataUrl,
+      anchor: [anchor.x / symbolSize.width, anchor.y / symbolSize.height],
+      anchorXUnits: 'fraction',
+      anchorYUnits: 'fraction',
+      imgSize: [symbolSize.width, symbolSize.height]
     }),
     text: new Text({
       text: label,
-      offsetY: 35,
-      font: 'bold 12px Arial',
-      fill: new Fill({ color: '#000' }),
-      stroke: new Stroke({ color: '#fff', width: 3 }),
+      offsetY: (symbolSize.height / 2) + 12,
+      font: 'bold 11px "Segoe UI", Arial, sans-serif',
+      fill: new Fill({ color: '#1a1a2e' }),
+      stroke: new Stroke({ color: '#ffffff', width: 3 }),
       textAlign: 'center'
     })
   });
 }
 
 /**
- * Helper: Draw rounded rectangle
+ * Build SIDC from unit properties when generateSIDC() is not available
+ * (e.g., for plain objects, not MilitaryUnit instances)
  */
-function roundRect(ctx, x, y, width, height, radius) {
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + width - radius, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-  ctx.lineTo(x + width, y + height - radius);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-  ctx.lineTo(x + radius, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
-}
-
-/**
- * Get symbol for unit type
- */
-function getTypeSymbol(type) {
-  const symbols = {
-    infantry: 'I',
-    armor: 'A',
-    mechanized: 'M',
-    artillery: '●',
-    engineer: 'E',
-    signal: 'S',
-    logistics: 'L',
-    medical: '+',
-    aviation: '✈',
-    headquarters: 'HQ',
-    reconnaissance: 'R',
-    special_forces: 'SF',
-    maintenance: 'MT',
-    transport: 'T',
-    supply: 'SU'
+function buildSIDCFromUnit(unit) {
+  const version = '10';
+  const context = 'R';
+  
+  const affiliationMap = { friend: '3', hostile: '6', neutral: '4', unknown: '1' };
+  const affiliation = affiliationMap[unit.affiliation] || '0';
+  
+  const dimension = 'G'; // Ground
+  
+  const statusMap = { present: '0', anticipated: '1', assumed_friend: '2' };
+  const status = statusMap[unit.status] || '0';
+  
+  const typeMap = {
+    infantry: '110100', armor: '110200', mechanized: '110300',
+    artillery: '110500', engineer: '110800', headquarters: '110000',
+    reconnaissance: '110400', signal: '111800', logistics: '150000',
+    medical: '150700', aviation: '110600', special_forces: '111800',
+    maintenance: '150600', transport: '150300', supply: '150500'
   };
-  return symbols[type] || '?';
-}
-
-/**
- * Get echelon symbol
- */
-function getEchelonSymbol(echelon) {
-  const symbols = {
-    team: '●',
-    squad: '●●',
-    section: '●●●',
-    platoon: '•',
-    company: 'I',
-    battalion: 'II',
-    regiment: 'III',
-    brigade: 'X',
-    division: 'XX',
-    corps: 'XXX',
-    army: 'XXXX'
+  const functionId = typeMap[unit.type] || '110100';
+  
+  const echelonMap = {
+    team: '11', squad: '12', section: '13', platoon: '14',
+    company: '15', battalion: '16', regiment: '17', brigade: '18',
+    division: '21', corps: '22', army: '23'
   };
-  return symbols[echelon] || '';
+  const echelon = echelonMap[unit.echelon] || '00';
+  
+  return `${version}${context}${affiliation}${dimension}${status}${functionId}${echelon}00`;
 }
 
 /**
@@ -281,10 +217,17 @@ export class MilitaryLayer {
   }
 
   /**
-   * Load scenario
+   * Load scenario (with symbol preloading)
    */
   loadScenario(scenario) {
     this.scenario = scenario;
+    
+    // Preload all SIDC symbols into client cache
+    const sidcList = scenario.units
+      .map(u => (u.generateSIDC ? u.generateSIDC() : u.sidc))
+      .filter(Boolean);
+    preloadSymbols(sidcList, { size: SYMBOL_SIZE });
+    
     this.updateFeatures();
   }
 
@@ -417,6 +360,12 @@ export class MilitaryLayer {
 
     // Extract all units from tree
     const allUnits = orbatTree.getAllUnits();
+    
+    // Preload all symbols into client cache for fast rendering
+    const sidcList = allUnits
+      .map(u => (u.generateSIDC ? u.generateSIDC() : u.sidc))
+      .filter(Boolean);
+    preloadSymbols(sidcList, { size: SYMBOL_SIZE });
     
     // Add units to scenario
     this.scenario.name = orbatTree.name;

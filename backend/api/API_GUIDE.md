@@ -368,12 +368,100 @@ CREATE TABLE project_layers (
 
 ---
 
-## 🏗️ Architecture
+## �️ Military Symbols API
+
+The Dufour API includes an embedded military symbol rendering service based on [milsymbol](https://github.com/spatialillusions/milsymbol). It supports both **APP-6D** (20-character) and **MIL-STD-2525C** (15-character) SIDC codes, with SVG and PNG output.
+
+### Render a Symbol (SVG)
+
+```bash
+# APP-6D: Friendly ground infantry company
+curl https://dufour-api.onrender.com/api/symbols/10031000001101001500.svg
+
+# 2525C: Friendly ground unit with modifiers
+curl "https://dufour-api.onrender.com/api/symbols/SFG-UCI---.svg?uniqueDesignation=1/INF&size=120"
+```
+
+### Render a Symbol (PNG)
+
+```bash
+curl -o symbol.png "https://dufour-api.onrender.com/api/symbols/SFG-UCI---.png?size=200"
+```
+
+### Supported Dimensions (APP-6D)
+
+| Char | Dimension | Description |
+|------|-----------|-------------|
+| G | Ground | Land forces, equipment, installations |
+| A | Air | Fixed wing, rotary wing, UAV |
+| S | Sea Surface | Ships, boats, naval |
+| U | Sea Subsurface | Submarines, mines, torpedoes |
+| P | Space | Satellites, space stations |
+| C | Cyberspace | Cyber operations, networks |
+| F | SOF | Special Operations Forces |
+| X | Other | Activities, events, operations |
+
+### Validate SIDC
+
+```bash
+curl https://dufour-api.onrender.com/api/symbols/validate/10031000001101001500
+```
+
+**Response:**
+```json
+{
+  "sidc": "10031000001101001500",
+  "valid": true,
+  "format": "APP-6D",
+  "dimension": "Ground"
+}
+```
+
+### Batch Rendering
+
+```bash
+curl -X POST "https://dufour-api.onrender.com/api/symbols/batch" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbols": [
+      {"sidc": "10031000001101001500"},
+      {"sidc": "SFG-UCI---", "uniqueDesignation": "HQ"},
+      {"sidc": "10061000001102001600"}
+    ],
+    "format": "svg",
+    "defaultSize": 80
+  }'
+```
+
+**Response:**
+```json
+{
+  "results": [
+    {"sidc": "10031000001101001500", "content": "<base64>", "content_type": "image/svg+xml"},
+    {"sidc": "SFG-UCI---", "content": "<base64>", "content_type": "image/svg+xml"},
+    {"sidc": "10061000001102001600", "content": "<base64>", "content_type": "image/svg+xml"}
+  ],
+  "total": 3,
+  "rendered": 3,
+  "errors": 0
+}
+```
+
+### Health Check
+
+```bash
+curl https://dufour-api.onrender.com/api/symbols/health
+```
+
+---
+
+## �🏗️ Architecture
 
 ```
 ┌─────────────────────┐
 │  Frontend (React)   │
 │  + OpenLayers       │
+│  + milsymbol.js     │
 └──────────┬──────────┘
            │
            │ HTTPS
@@ -385,16 +473,15 @@ CREATE TABLE project_layers (
            │
            │ /api/*
            ↓
-┌─────────────────────┐
-│  Dufour Middleware  │
-│  API (FastAPI)      │
-└──────┬──────┬───────┘
-       │      │
-       │      │ WMS
-       │      ↓
-       │  ┌─────────────┐
-       │  │ QGIS Server │
-       │  └─────────────┘
+┌─────────────────────────────────────┐
+│  Dufour Middleware API (FastAPI)    │
+│  :3000                             │
+│                                    │
+│  /api/symbols/* ──→ Milsymbol Srv  │
+│                     :2525 (Node.js)│
+│  /api/projects/*/wms ──→ QGIS Srv │
+│                          :8080     │
+└──────┬──────────────────────────────┘
        │
        │ SQL
        ↓

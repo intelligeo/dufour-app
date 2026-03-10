@@ -34,6 +34,17 @@ services:
         value: "2"
       - key: QGIS_SERVER_IGNORE_BAD_LAYERS
         value: "1"
+      # Milsymbol Server configuration (embedded sidecar)
+      - key: MILSYMBOL_SERVER_URL
+        value: http://localhost:2525
+      - key: MILSYMBOL_PORT
+        value: "2525"
+      - key: MILSYMBOL_DEFAULT_SIZE
+        value: "100"
+      - key: DEFAULT_SIDC_FORMAT
+        value: APP-6D
+      - key: SYMBOL_CACHE_SIZE
+        value: "512"
     healthCheckPath: /
     autoDeploy: true
 

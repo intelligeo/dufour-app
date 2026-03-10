@@ -1,0 +1,19 @@
+{
+  "name": "dufour-milsymbol-server",
+  "version": "1.0.0",
+  "description": "Military symbol rendering server for Dufour-App (based on milsymbol-server by spatialillusions)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "milsymbol": "^2.2.0",
+    "canvas": "^2.11.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "author": "Michael Lanini (based on work by Måns Beckman - spatialillusions.com)"
+}

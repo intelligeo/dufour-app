@@ -1,9 +1,10 @@
 /**
  * MilitarySymbolEditor Component
  * Panel for creating and editing military units
+ * Now with live NATO symbol preview via milsymbol
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   MilitaryUnit, 
@@ -13,6 +14,7 @@ import {
   UnitTypes,
   getAffiliationColor 
 } from '../services/militarySymbols';
+import { getThumbnailSymbol, getSymbolDataURL, validateSIDC } from '../services/symbolService';
 import '../styles/panels.css';
 
 const MilitarySymbolEditor = ({ onSave, onCancel, initialUnit = null, mode = 'create' }) => {
@@ -303,20 +305,45 @@ const MilitarySymbolEditor = ({ onSave, onCancel, initialUnit = null, mode = 'cr
             </div>
           </fieldset>
 
-          {/* SIDC Preview */}
-          {unit.position && (
-            <fieldset>
-              <legend>{t('military.editor.sidcCode', 'SIDC Code')}</legend>
-              <div className="form-group">
-                <code className="sidc-code">
-                  {new MilitaryUnit(unit).generateSIDC()}
-                </code>
-                <small className="help-text">
-                  {t('military.editor.sidcHelp', 'Symbol Identification Code (APP-6D)')}
-                </small>
-              </div>
-            </fieldset>
-          )}
+          {/* SIDC Preview — live rendered NATO symbol */}
+          {(() => {
+            const tempUnit = new MilitaryUnit(unit);
+            const sidc = tempUnit.generateSIDC();
+            const validation = validateSIDC(sidc);
+            const previewDataUrl = validation.valid
+              ? getSymbolDataURL(sidc, { size: 80 }, 'svg')
+              : null;
+
+            return (
+              <fieldset>
+                <legend>{t('military.editor.symbolPreview', 'Symbol Preview')}</legend>
+                <div className="form-group" style={{ textAlign: 'center' }}>
+                  {previewDataUrl ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      <img 
+                        src={previewDataUrl} 
+                        alt="NATO Symbol Preview"
+                        style={{ maxHeight: '120px', imageRendering: 'auto' }}
+                      />
+                      <code className="sidc-code" style={{ fontSize: '11px', letterSpacing: '1px' }}>
+                        {sidc}
+                      </code>
+                      <small className="help-text" style={{ color: '#27ae60' }}>
+                        ✓ {validation.message} ({validation.format?.toUpperCase()})
+                      </small>
+                    </div>
+                  ) : (
+                    <div style={{ padding: '16px', color: '#888' }}>
+                      <code className="sidc-code">{sidc || '—'}</code>
+                      <small className="help-text" style={{ color: '#e74c3c' }}>
+                        ⚠ {validation.message}
+                      </small>
+                    </div>
+                  )}
+                </div>
+              </fieldset>
+            );
+          })()}
 
           {/* Actions */}
           <div className="form-actions">

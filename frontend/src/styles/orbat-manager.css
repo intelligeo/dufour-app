@@ -192,6 +192,16 @@
     text-align: center;
 }
 
+/* NATO Symbol Icon (milsymbol rendered) */
+.orbat-symbol-icon {
+    min-width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    image-rendering: auto;
+    pointer-events: none;
+    margin-right: 4px;
+}
+
 /* Unit Name */
 .orbat-unit-name {
     flex: 1;

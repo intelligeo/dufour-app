@@ -11,6 +11,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { OrbatUnit, OrbatTree, NATOEchelons, createSampleOrbat } from '../services/orbatModel.js';
 import { flatToHierarchy, hierarchyToFlat, scenarioToOrbat, orbatToScenario } from '../services/orbatConverter.js';
 import MilitarySymbolEditor from './MilitarySymbolEditor.jsx';
+import OrbatExporter from './panels/OrbatExporter.jsx';
+import { getThumbnailSymbol } from '../services/symbolService.js';
 import '../styles/orbat-manager.css';
 
 /**
@@ -23,6 +25,7 @@ export default function OrbatManager({ onDeploy, onClose, initialOrbat = null })
     const [showEditor, setShowEditor] = useState(false);
     const [contextMenu, setContextMenu] = useState(null);
     const [draggedUnit, setDraggedUnit] = useState(null);
+    const [showExporter, setShowExporter] = useState(false);
     
     const fileInputRef = useRef(null);
     
@@ -327,9 +330,30 @@ export default function OrbatManager({ onDeploy, onClose, initialOrbat = null })
                     )}
                     {!hasChildren && <span className="orbat-expand-spacer"></span>}
                     
-                    <span className="orbat-echelon-icon" title={unit.echelon.name}>
-                        {unit.echelon.symbol}
-                    </span>
+                    {/* NATO symbol thumbnail (real milsymbol rendering) */}
+                    {(() => {
+                        const sidc = (unit.generateSIDC && typeof unit.generateSIDC === 'function')
+                            ? unit.generateSIDC()
+                            : null;
+                        if (sidc) {
+                            const thumbUrl = getThumbnailSymbol(sidc, 28);
+                            return (
+                                <img 
+                                    className="orbat-symbol-icon"
+                                    src={thumbUrl}
+                                    alt={unit.echelon?.name || 'unit'}
+                                    title={`${unit.echelon?.name || ''} — ${sidc}`}
+                                    style={{ width: '28px', height: '28px', flexShrink: 0 }}
+                                />
+                            );
+                        }
+                        // Fallback to text echelon symbol
+                        return (
+                            <span className="orbat-echelon-icon" title={unit.echelon?.name || ''}>
+                                {unit.echelon?.symbol || '?'}
+                            </span>
+                        );
+                    })()}
                     
                     <span className="orbat-unit-name">{unit.name}</span>
                     
@@ -370,6 +394,9 @@ export default function OrbatManager({ onDeploy, onClose, initialOrbat = null })
                 </button>
                 <button onClick={handleExport} title="Export JSON" disabled={!orbatTree.root}>
                     📤 Export
+                </button>
+                <button onClick={() => setShowExporter(true)} title="Export ORBAT (PNG/CSV)" disabled={!orbatTree.root}>
+                    🖼️ Export+
                 </button>
                 <button onClick={handleDeploy} className="deploy-btn" disabled={!orbatTree.root}>
                     🗺️ Deploy
@@ -480,6 +507,14 @@ export default function OrbatManager({ onDeploy, onClose, initialOrbat = null })
                         />
                     </div>
                 </div>
+            )}
+            
+            {/* ORBAT Exporter Modal */}
+            {showExporter && (
+                <OrbatExporter
+                    orbatTree={orbatTree}
+                    onClose={() => setShowExporter(false)}
+                />
             )}
         </div>
     );

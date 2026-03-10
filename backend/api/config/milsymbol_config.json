@@ -1,0 +1,52 @@
+{
+    "milsymbol": {
+        "description": "Military symbol rendering configuration",
+        
+        "sidc_format": {
+            "description": "Preferred SIDC format: 'APP-6D' (20 chars) or '2525C' (15 chars). Both are always accepted; this sets the default for the UI.",
+            "default": "APP-6D",
+            "options": ["APP-6D", "2525C"]
+        },
+
+        "default_size": {
+            "description": "Default symbol size in pixels when not specified in request",
+            "default": 100,
+            "min": 20,
+            "max": 500
+        },
+
+        "cache_size": {
+            "description": "Maximum number of rendered symbols to keep in LRU cache",
+            "default": 512
+        },
+
+        "server": {
+            "description": "Milsymbol rendering server (embedded sidecar)",
+            "url": "http://localhost:2525",
+            "port": 2525,
+            "health_endpoint": "/health"
+        },
+
+        "supported_dimensions": {
+            "description": "APP-6D symbol dimensions (domains) supported",
+            "values": {
+                "G": "Ground (land forces, equipment, installations)",
+                "A": "Air (fixed wing, rotary wing, UAV)",
+                "S": "Sea Surface (ships, boats, naval)",
+                "U": "Sea Subsurface (submarines, mines, torpedoes)",
+                "P": "Space (satellites, space stations)",
+                "C": "Cyberspace (cyber operations, networks)",
+                "F": "Special Operations Forces (SOF)",
+                "X": "Other (activities, events, operations)"
+            }
+        },
+
+        "default_options": {
+            "description": "Default milsymbol rendering options applied to all symbols unless overridden",
+            "square": false,
+            "infoSize": 40,
+            "strokeWidth": 4,
+            "outlineWidth": 0
+        }
+    }
+}

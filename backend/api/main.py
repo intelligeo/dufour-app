@@ -7,17 +7,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import HTMLResponse
+from fastapi.responses import JSONResponse
 from typing import List, Optional
 import os
+import logging
 from pathlib import Path
 import tempfile
 import httpx
+
+logger = logging.getLogger("dufour.api")
 
 from services.project_service import ProjectService
 from services.data_service import DataService
 from services.qwc_service import QWCService
 from services.qgis_storage_service import storage_service
 from services.project_migrator import ProjectMigrator
+from services.symbol_service import symbol_service, validate_sidc
 from models.schemas import ProjectResponse, TableSchema, UploadResponse
 from database.connection import db
 
@@ -109,6 +114,10 @@ Currently public API. Future versions will implement JWT authentication.
         {
             "name": "qwc2",
             "description": "QWC2 theme configuration (compatibility layer)"
+        },
+        {
+            "name": "symbols",
+            "description": "Military symbol rendering (APP-6D / MIL-STD-2525C via milsymbol)"
         }
     ],
     swagger_ui_parameters={
@@ -959,6 +968,408 @@ async def get_status():
         return status
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== MILITARY SYMBOL ENDPOINTS ====================
+
+@app.get("/api/symbols/health", tags=["symbols"])
+async def symbols_health():
+    """
+    # Milsymbol Server Health Check
+    
+    Check connectivity and status of the embedded milsymbol rendering server.
+    
+    ### Returns:
+    - `online`: Whether the milsymbol-server is reachable
+    - `stats`: Rendering statistics (total requests, cache hits)
+    - `supported_sidc`: Supported SIDC formats
+    """
+    server_health = await symbol_service.health_check()
+    cache_stats = symbol_service.get_cache_stats()
+    return {
+        **server_health,
+        "cache": cache_stats,
+        "config": {
+            "default_format": os.getenv("DEFAULT_SIDC_FORMAT", "APP-6D"),
+            "default_size": int(os.getenv("MILSYMBOL_DEFAULT_SIZE", "100"))
+        }
+    }
+
+
+@app.get("/api/symbols/{sidc_with_format}", tags=["symbols"])
+async def render_symbol(
+    sidc_with_format: str,
+    request: Request,
+    size: Optional[int] = None
+):
+    """
+    # Render Military Symbol
+    
+    Generate a military symbol image (SVG or PNG) from a SIDC code.
+    
+    ## URL Format:
+    ```
+    GET /api/symbols/{SIDC}.{format}?size=100&uniqueDesignation=HQ
+    ```
+    
+    ## Supported SIDC Formats:
+    
+    ### APP-6D (20 characters)
+    Modern NATO standard. Example: `10031000001211000000`
+    
+    Structure: `Version(2) + Context(1) + Affiliation(1) + Dimension(1) + Status(1) + FunctionID(6) + Modifier1(2) + Modifier2(2) + Reserved(4)`
+    
+    ### MIL-STD-2525C (15 characters)
+    Legacy format. Example: `SFG-UCI---`
+    
+    ## Output Formats:
+    - `.svg` — Scalable vector (recommended for web maps)
+    - `.png` — Raster image (recommended for export/print)
+    
+    ## Modifier Options (query string):
+    All milsymbol.js options are supported:
+    - `size`: Symbol size in pixels (default: 100)
+    - `uniqueDesignation`: Unit designation text (e.g., "1/INF")
+    - `higherFormation`: Higher formation text
+    - `quantity`: Quantity indicator
+    - `staffComments`: Staff comments
+    - `direction`: Direction of movement (degrees)
+    - `speed`: Speed indicator
+    - `specialHeadquarters`: Special HQ indicator
+    - `square`: Force square symbol (true/false)
+    
+    ## Examples:
+    
+    ### Friendly infantry company (APP-6D):
+    ```
+    GET /api/symbols/10031000001101001500.svg
+    ```
+    
+    ### Hostile armor battalion (2525C):
+    ```
+    GET /api/symbols/SHG-UCF---.svg?size=120
+    ```
+    
+    ### Air fighter with designation (APP-6D):
+    ```
+    GET /api/symbols/10031000001101000000.svg?uniqueDesignation=F-16
+    ```
+    
+    ### Naval vessel (APP-6D):
+    ```
+    GET /api/symbols/10031500001101000000.svg
+    ```
+    
+    ### Cyber unit (APP-6D):
+    ```
+    GET /api/symbols/10031000001101000000.svg
+    ```
+    
+    ## Caching:
+    Symbols are cached server-side (LRU, ~512 entries).
+    HTTP Cache-Control headers enable browser/CDN caching for 24 hours.
+    
+    ## Errors:
+    - `400`: Invalid SIDC format or unsupported output format
+    - `502`: Milsymbol rendering server unreachable
+    - `500`: Rendering failure
+    """
+    # Parse SIDC and format from path
+    dot_index = sidc_with_format.rfind(".")
+    if dot_index == -1:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Missing format extension. Use .svg or .png",
+                "example": "/api/symbols/SFG-UCI---.svg"
+            }
+        )
+    
+    sidc = sidc_with_format[:dot_index]
+    fmt = sidc_with_format[dot_index + 1:].lower()
+    
+    # Collect all query params as milsymbol options (excluding 'size' which we handle)
+    options = {}
+    for key, value in request.query_params.items():
+        if key != "size":
+            options[key] = value
+    
+    try:
+        content, content_type, metadata = await symbol_service.render_symbol(
+            sidc=sidc,
+            fmt=fmt,
+            size=size,
+            **options
+        )
+        
+        return Response(
+            content=content,
+            media_type=content_type,
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "X-SIDC-Format": metadata.get("sidc_format", "unknown"),
+                "X-Symbol-Cached": str(metadata.get("cached", False)).lower(),
+                "X-Symbol-Dimension": metadata.get("dimension") or "unknown",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ConnectionError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Symbol rendering failed: {str(e)}")
+
+
+@app.post("/api/symbols/batch", tags=["symbols"])
+async def render_symbols_batch(
+    request: Request,
+    fmt: str = "svg",
+    size: Optional[int] = None
+):
+    """
+    # Batch Render Military Symbols
+    
+    Render multiple symbols in a single request. Efficient for ORBAT displays
+    with many units.
+    
+    ## Request Body:
+    ```json
+    {
+      "symbols": [
+        {"sidc": "10031000001101001500"},
+        {"sidc": "10061000001102001600", "uniqueDesignation": "2/ARM"},
+        {"sidc": "SFG-UCI---", "size": 80}
+      ],
+      "format": "svg",
+      "defaultSize": 100
+    }
+    ```
+    
+    ## Response:
+    ```json
+    {
+      "results": [
+        {
+          "sidc": "10031000001101001500",
+          "content": "<base64-encoded SVG>",
+          "content_type": "image/svg+xml",
+          "metadata": {"sidc_format": "APP-6D", "cached": false}
+        }
+      ],
+      "total": 3,
+      "rendered": 3,
+      "errors": 0
+    }
+    ```
+    
+    ## Limits:
+    - Max 100 symbols per batch request
+    - Timeout: 30 seconds
+    
+    ## Use Cases:
+    - ORBAT tree icon loading
+    - Print/export with multiple symbols
+    - Preloading symbols for scenario playback
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    
+    symbols = body.get("symbols", [])
+    batch_fmt = body.get("format", fmt)
+    batch_size = body.get("defaultSize", size)
+    
+    if not symbols:
+        raise HTTPException(status_code=400, detail="Empty symbols array")
+    
+    if len(symbols) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 symbols per batch")
+    
+    try:
+        results = await symbol_service.render_batch(
+            symbols=symbols,
+            fmt=batch_fmt,
+            size=batch_size
+        )
+        
+        errors_count = sum(1 for r in results if "error" in r)
+        
+        return {
+            "results": results,
+            "total": len(symbols),
+            "rendered": len(symbols) - errors_count,
+            "errors": errors_count
+        }
+    
+    except ConnectionError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch rendering failed: {str(e)}")
+
+
+@app.delete("/api/symbols/cache", tags=["symbols"])
+async def clear_symbol_cache():
+    """
+    # Clear Symbol Cache
+    
+    Flush the server-side LRU cache for rendered symbols.
+    Useful after configuration changes or debugging.
+    
+    ### Returns:
+    Cache statistics before and after clearing.
+    """
+    before = symbol_service.get_cache_stats()
+    symbol_service.clear_cache()
+    after = symbol_service.get_cache_stats()
+    return {
+        "message": "Symbol cache cleared",
+        "before": before,
+        "after": after
+    }
+
+
+@app.get("/api/symbols/validate/{sidc}", tags=["symbols"])
+async def validate_sidc_endpoint(sidc: str):
+    """
+    # Validate SIDC Code
+    
+    Check if a Symbol Identification Code is valid and identify its format.
+    
+    ### Parameters:
+    - `sidc`: The SIDC code to validate
+    
+    ### Returns:
+    ```json
+    {
+      "sidc": "10031000001101001500",
+      "valid": true,
+      "format": "APP-6D",
+      "dimension": "Ground"
+    }
+    ```
+    
+    ### Supported Formats:
+    - **APP-6D**: 20 alphanumeric characters
+    - **MIL-STD-2525C**: 10-15 characters (letters, digits, dashes)
+    """
+    from services.symbol_service import validate_sidc as _validate, get_sidc_dimension
+    
+    validation = _validate(sidc)
+    result = {
+        "sidc": sidc,
+        "valid": validation.valid,
+        "format": validation.format,
+    }
+    
+    if validation.valid:
+        result["dimension"] = get_sidc_dimension(sidc)
+    else:
+        result["error"] = validation.error
+    
+    return result
+
+
+# ==================== PRINT WITH SYMBOLS ENDPOINT ====================
+
+@app.post("/api/print/compose", tags=["symbols"])
+async def compose_print_with_symbols(request: dict):
+    """
+    # Compose Print Map with Military Symbols
+
+    Generates a print-ready PNG map by overlaying military symbols
+    on a QGIS Server base map at the correct geographic positions.
+
+    ### Request Body:
+    ```json
+    {
+        "extent": {
+            "xmin": 800000, "ymin": 5900000,
+            "xmax": 860000, "ymax": 5960000,
+            "crs": "EPSG:3857"
+        },
+        "width": 1200,
+        "height": 800,
+        "dpi": 300,
+        "project": "CHE_Basemaps",
+        "layers": ["layer1", "layer2"],
+        "symbols": [
+            {
+                "sidc": "10031000001211000000",
+                "lon": 7.45, "lat": 46.95,
+                "size": 48, "label": "1/52 Inf Bn"
+            }
+        ]
+    }
+    ```
+
+    ### Returns:
+    PNG image (application/png)
+    """
+    from services.print_service import (
+        compose_print_map, PrintRequest, MapExtent, SymbolOverlay
+    )
+    
+    try:
+        extent_data = request.get("extent", {})
+        extent = MapExtent(
+            xmin=float(extent_data.get("xmin", 0)),
+            ymin=float(extent_data.get("ymin", 0)),
+            xmax=float(extent_data.get("xmax", 0)),
+            ymax=float(extent_data.get("ymax", 0)),
+            crs=extent_data.get("crs", "EPSG:3857")
+        )
+        
+        symbols = []
+        for s in request.get("symbols", []):
+            symbols.append(SymbolOverlay(
+                sidc=s["sidc"],
+                lon=float(s["lon"]),
+                lat=float(s["lat"]),
+                size=int(s.get("size", 48)),
+                label=s.get("label", ""),
+                options=s.get("options", {})
+            ))
+        
+        print_request = PrintRequest(
+            extent=extent,
+            width=int(request.get("width", 1200)),
+            height=int(request.get("height", 800)),
+            dpi=int(request.get("dpi", 300)),
+            project=request.get("project", ""),
+            layers=request.get("layers", []),
+            symbols=symbols
+        )
+        
+        png_bytes = await compose_print_map(print_request)
+        
+        if png_bytes is None:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Print composition failed. Check server logs."}
+            )
+        
+        return Response(
+            content=png_bytes,
+            media_type="image/png",
+            headers={
+                "Content-Disposition": f"inline; filename=dufour_print_{len(symbols)}_symbols.png"
+            }
+        )
+    
+    except KeyError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Missing required field: {e}"}
+        )
+    except Exception as e:
+        logger.error(f"Print composition error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
 
 
 # ==================== QGIS PROJECT STORAGE ENDPOINTS ====================

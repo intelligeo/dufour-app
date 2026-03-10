@@ -197,5 +197,43 @@ export default {
   importExport: {
     allowedFormats: ['geojson', 'kml', 'gpx', 'json'],
     maxFileSize: 10485760 // 10 MB
+  },
+
+  // Military Symbol Server (milsymbol-server integration)
+  milsymbol: {
+    // Server URL for symbol rendering (proxied through Vite/nginx)
+    serverUrl: import.meta.env.VITE_SYMBOL_SERVER_URL || '/api/symbols',
+    
+    // Default SIDC format: 'app6d' (20-char) or '2525c' (15-char)
+    defaultFormat: 'app6d',
+    
+    // Default symbol size in pixels (for map rendering)
+    defaultSize: 48,
+    
+    // Export size (higher quality for print/PDF)
+    exportSize: 96,
+    
+    // Thumbnail size (ORBAT tree, editors)
+    thumbnailSize: 32,
+    
+    // Client-side LRU cache max entries
+    cacheMaxSize: 1024,
+    
+    // Server fetch timeout in milliseconds
+    serverTimeout: 5000,
+    
+    // Rendering strategy: 'hybrid' | 'client-only' | 'server-only'
+    //  - hybrid: client for map, server for export (recommended)
+    //  - client-only: milsymbol.js only, no server needed
+    //  - server-only: all rendering via server API
+    renderingStrategy: 'hybrid',
+    
+    // Custom color mode (KADAS-inspired)
+    colorMode: {
+      Friend: 'rgb(170, 176, 116)',
+      Hostile: 'rgb(255, 50, 50)',
+      Neutral: 'rgb(0, 226, 0)',
+      Unknown: 'rgb(255, 255, 0)'
+    }
   }
 };

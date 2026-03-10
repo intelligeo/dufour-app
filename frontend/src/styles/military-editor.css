@@ -231,3 +231,28 @@
     min-height: 48px;
   }
 }
+
+/* Symbol Preview Section */
+.symbol-preview-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+}
+
+.symbol-preview-container img {
+  max-height: 120px;
+  image-rendering: auto;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.1));
+}
+
+.symbol-preview-container .sidc-code {
+  font-size: 11px;
+  padding: 4px 8px;
+  background: #e9ecef;
+  letter-spacing: 1px;
+}

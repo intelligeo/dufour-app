@@ -28,3 +28,6 @@ pydantic==2.5.3
 # Utilities
 python-dotenv==1.0.0
 aiofiles==23.2.1
+
+# Image processing (for print composition with military symbols)
+Pillow==10.2.0
