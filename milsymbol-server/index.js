@@ -139,7 +139,7 @@ const server = http.createServer((req, res) => {
       status: "online",
       service: "dufour-milsymbol-server",
       version: "1.0.0",
-      milsymbol_version: ms.version || "2.x",
+      milsymbol_version: ms.version || "unknown",
       supported_formats: ["SVG", "PNG"],
       supported_sidc: ["APP-6D (20 chars)", "MIL-STD-2525C (15 chars)"],
       default_size: defaultSize,
