@@ -45,6 +45,9 @@ services:
         value: APP-6D
       - key: SYMBOL_CACHE_SIZE
         value: "512"
+      # Render.com routes traffic to this port — FastAPI must listen here
+      - key: PORT
+        value: "10000"
     healthCheckPath: /
     autoDeploy: true
 

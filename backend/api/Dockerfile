@@ -118,9 +118,10 @@ if [ "$MILSYMBOL_READY" -eq 0 ]; then\n\
   echo "--- Continuing anyway (symbol endpoints will return errors) ---"\n\
 fi\n\
 \n\
-# Start FastAPI (foreground)\n\
-echo "🚀 Starting FastAPI on port 3000"\n\
-exec uvicorn main:app --host 0.0.0.0 --port 3000\n\
+# Start FastAPI (foreground) on PORT from Render, fallback to 3000\n\
+API_PORT="${PORT:-3000}"\n\
+echo "🚀 Starting FastAPI on port $API_PORT"\n\
+exec uvicorn main:app --host 0.0.0.0 --port "$API_PORT"\n\
 ' > /start.sh && chmod +x /start.sh
 
 EXPOSE 3000 8080 2525
