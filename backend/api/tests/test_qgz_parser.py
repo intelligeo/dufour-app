@@ -309,3 +309,292 @@ class TestQGZParser:
         with pytest.raises(ValueError, match="No .qgs file found"):
             with QGZParser(qgz_path) as parser:
                 parser.extract()
+
+
+# ==================== QGIS 3.40+ compatibility tests ====================
+
+
+class TestQGZParserQGIS340:
+    """Test parser with QGIS 3.40 XML format (id as child element, no <geometrytype>)"""
+    
+    @pytest.fixture
+    def qgis340_qgz(self, tmp_path):
+        """Create a QGZ mirroring QGIS 3.40 structure (id as child, geometry as attribute)"""
+        xml_content = """<?xml version="1.0" encoding="UTF-8"?>
+<qgis projectname="caresg_test" version="3.40.7-Bratislava">
+  <title></title>
+  <projectCrs>
+    <spatialrefsys nativeFormat="Wkt">
+      <authid>EPSG:2056</authid>
+    </spatialrefsys>
+  </projectCrs>
+  <mapcanvas name="theMapCanvas">
+    <extent>
+      <xmin>2699625.691</xmin>
+      <ymin>1115328.154</ymin>
+      <xmax>2699979.129</xmax>
+      <ymax>1115623.061</ymax>
+    </extent>
+    <destinationsrs>
+      <spatialrefsys nativeFormat="Wkt">
+        <authid>EPSG:2056</authid>
+      </spatialrefsys>
+    </destinationsrs>
+  </mapcanvas>
+  <projectlayers>
+    <maplayer type="raster" autoRefreshMode="Disabled">
+      <id>_969c5d58_2e0a_4298_9a53_450ccd7b0b6a</id>
+      <datasource>contextualWMSLegend=0&amp;crs=EPSG:2056&amp;layers=ch.swisstopo.pixelkarte-grau&amp;url=https://wms.geo.admin.ch</datasource>
+      <layername>Landeskarten (grau)</layername>
+      <provider>wms</provider>
+      <srs><spatialrefsys><authid>EPSG:2056</authid></spatialrefsys></srs>
+    </maplayer>
+    <maplayer type="vector" geometry="Polygon" wkbType="MultiPolygon">
+      <id>beni_immobili_6d23e1cd_c0e1_49f5_9eef_144bbfa73fac</id>
+      <datasource>./caresg_mu.gpkg|layername=beni_immobili</datasource>
+      <layername>caresg_mu — beni_immobili</layername>
+      <provider encoding="UTF-8">ogr</provider>
+      <srs><spatialrefsys><authid>EPSG:2056</authid></spatialrefsys></srs>
+    </maplayer>
+    <maplayer type="vector" geometry="Point" wkbType="Point">
+      <id>punti_di_confine_a96cbdad_22c9_44c0_9d72_8cb11d16efee</id>
+      <datasource>./caresg_mu.gpkg|layername=punti_di_confine</datasource>
+      <layername>caresg_mu — punti_di_confine</layername>
+      <provider encoding="UTF-8">ogr</provider>
+      <srs><spatialrefsys><authid>EPSG:2056</authid></spatialrefsys></srs>
+    </maplayer>
+  </projectlayers>
+</qgis>"""
+        qgz_path = tmp_path / "caresg_test.qgz"
+        with zipfile.ZipFile(qgz_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('caresg_test.qgs', xml_content)
+            zf.writestr('caresg_mu.gpkg', b'dummy gpkg')
+        return qgz_path
+    
+    def test_layer_id_from_child_element(self, qgis340_qgz):
+        """Test that layer IDs are read from <id> child element (QGIS 3.40+)"""
+        with QGZParser(qgis340_qgz) as parser:
+            parser.extract()
+            parser.parse_xml()
+            layers = parser.parse_layers()
+            
+            # WMS layer
+            wms_layer = next(l for l in layers if l.name == 'Landeskarten (grau)')
+            assert wms_layer.id == '_969c5d58_2e0a_4298_9a53_450ccd7b0b6a'
+            
+            # Vector layers
+            beni = next(l for l in layers if 'beni_immobili' in l.name)
+            assert beni.id == 'beni_immobili_6d23e1cd_c0e1_49f5_9eef_144bbfa73fac'
+    
+    def test_geometry_type_from_attribute(self, qgis340_qgz):
+        """Test that geometry type is read from geometry= attribute when <geometrytype> is absent"""
+        with QGZParser(qgis340_qgz) as parser:
+            parser.extract()
+            parser.parse_xml()
+            layers = parser.parse_layers()
+            
+            beni = next(l for l in layers if 'beni_immobili' in l.name)
+            assert beni.geometry_type == 'Polygon'
+            
+            punti = next(l for l in layers if 'punti_di_confine' in l.name)
+            assert punti.geometry_type == 'Point'
+    
+    def test_empty_title_fallback_to_projectname(self, qgis340_qgz):
+        """Test that empty <title> falls back to projectname attribute"""
+        with QGZParser(qgis340_qgz) as parser:
+            parser.extract()
+            parser.parse_xml()
+            info = parser.get_project_info()
+            
+            # <title> is empty, should use projectname="caresg_test"
+            assert info.title == 'caresg_test'
+    
+    def test_update_datasource_by_child_id(self, qgis340_qgz):
+        """Test update_layer_datasource works with QGIS 3.40 <id> child elements"""
+        with QGZParser(qgis340_qgz) as parser:
+            parser.extract()
+            parser.parse_xml()
+            
+            layer_id = 'beni_immobili_6d23e1cd_c0e1_49f5_9eef_144bbfa73fac'
+            new_ds = "dbname='dufour' host=localhost table='test_beni'"
+            
+            # This was previously broken — XPath [@id='...'] wouldn't match
+            parser.update_layer_datasource(layer_id, new_ds)
+            
+            # Verify the datasource was updated
+            for ml in parser.root.findall('.//maplayer'):
+                id_elem = ml.find('id')
+                if id_elem is not None and id_elem.text == layer_id:
+                    assert ml.find('datasource').text == new_ds
+                    # Provider should also be updated to postgres
+                    assert ml.find('.//provider').text == 'postgres'
+                    break
+            else:
+                pytest.fail(f"Layer {layer_id} not found after update")
+    
+    def test_gpkg_layers_detected_as_local(self, qgis340_qgz):
+        """Test that ./caresg_mu.gpkg layers are detected as local"""
+        with QGZParser(qgis340_qgz) as parser:
+            parser.extract()
+            parser.parse_xml()
+            layers = parser.parse_layers()
+            
+            local_layers = [l for l in layers if l.is_local]
+            remote_layers = [l for l in layers if not l.is_local]
+            
+            assert len(local_layers) == 2  # beni_immobili, punti_di_confine
+            assert len(remote_layers) == 1  # WMS
+            assert all(l.source_type == 'gpkg' for l in local_layers)
+    
+    def test_crs_fallback_to_project_crs(self, tmp_path):
+        """Test CRS extraction when mapcanvas has no destinationsrs but projectCrs exists"""
+        xml_content = """<?xml version="1.0"?>
+<qgis projectname="test" version="3.40.7">
+  <title>Test</title>
+  <projectCrs>
+    <spatialrefsys>
+      <authid>EPSG:21781</authid>
+    </spatialrefsys>
+  </projectCrs>
+  <mapcanvas name="theMapCanvas">
+    <extent>
+      <xmin>600000</xmin><ymin>200000</ymin>
+      <xmax>650000</xmax><ymax>250000</ymax>
+    </extent>
+  </mapcanvas>
+  <projectlayers></projectlayers>
+</qgis>"""
+        qgz_path = tmp_path / "test.qgz"
+        with zipfile.ZipFile(qgz_path, 'w') as zf:
+            zf.writestr('test.qgs', xml_content)
+        
+        with QGZParser(qgz_path) as parser:
+            parser.extract()
+            parser.parse_xml()
+            info = parser.get_project_info()
+            
+            # Should fall back to <projectCrs>
+            assert info.crs == 'EPSG:21781'
+
+
+# ==================== Real fixture tests ====================
+
+
+FIXTURE_DIR = Path(__file__).parent / "test_qgs"
+REAL_QGZ = FIXTURE_DIR / "caresg_test_epsg2056_v340.qgz"
+REAL_GPKG = FIXTURE_DIR / "caresg_mu.gpkg"
+
+
+@pytest.mark.skipif(
+    not REAL_QGZ.exists(),
+    reason="Real test fixture caresg_test_epsg2056_v340.qgz not available"
+)
+class TestRealFixture:
+    """Tests against the real QGIS 3.40 project fixture"""
+    
+    def test_parse_real_project_info(self):
+        """Test parsing project-level metadata from real QGZ"""
+        with QGZParser(REAL_QGZ) as parser:
+            parser.extract()
+            parser.parse_xml()
+            info = parser.get_project_info()
+            
+            # Both <title> and projectname are empty in this fixture → 'Untitled'
+            assert info.title == 'Untitled'
+            assert info.crs == 'EPSG:2056'
+            
+            # Extent should be in Swiss LV95 range
+            xmin, ymin, xmax, ymax = info.extent
+            assert 2500000 < xmin < 2800000
+            assert 1100000 < ymin < 1300000
+    
+    def test_parse_real_layers(self):
+        """Test parsing all 6 layers from real QGZ"""
+        with QGZParser(REAL_QGZ) as parser:
+            parser.extract()
+            parser.parse_xml()
+            info = parser.get_project_info()
+            
+            assert len(info.layers) == 6
+            
+            # Check layer type counts
+            vector_layers = [l for l in info.layers if l.layer_type == 'vector']
+            raster_layers = [l for l in info.layers if l.layer_type == 'raster']
+            assert len(vector_layers) == 3
+            assert len(raster_layers) == 3
+    
+    def test_real_layer_ids_not_empty(self):
+        """Test that layer IDs are correctly extracted (not empty)"""
+        with QGZParser(REAL_QGZ) as parser:
+            parser.extract()
+            parser.parse_xml()
+            layers = parser.parse_layers()
+            
+            for layer in layers:
+                assert layer.id, f"Layer '{layer.name}' has empty ID"
+                assert len(layer.id) > 5, f"Layer '{layer.name}' ID too short: {layer.id}"
+    
+    def test_real_vector_layers_have_geometry_type(self):
+        """Test that vector layers have geometry type (from attribute, not element)"""
+        with QGZParser(REAL_QGZ) as parser:
+            parser.extract()
+            parser.parse_xml()
+            layers = parser.parse_layers()
+            
+            vector_layers = [l for l in layers if l.layer_type == 'vector']
+            for layer in vector_layers:
+                assert layer.geometry_type is not None, \
+                    f"Vector layer '{layer.name}' has no geometry_type"
+                assert layer.geometry_type in ('Point', 'Polygon', 'LineString',
+                                                'MultiPoint', 'MultiPolygon', 'MultiLineString'), \
+                    f"Unexpected geometry type: {layer.geometry_type}"
+    
+    def test_real_gpkg_layers_detected_as_local(self):
+        """Test that GPKG layers are correctly identified as local"""
+        with QGZParser(REAL_QGZ) as parser:
+            parser.extract()
+            parser.parse_xml()
+            layers = parser.parse_layers()
+            
+            local_layers = [l for l in layers if l.is_local]
+            assert len(local_layers) == 3  # beni_immobili, edifici_prog, punti_di_confine
+            
+            for layer in local_layers:
+                assert layer.source_type == 'gpkg'
+                assert 'caresg_mu.gpkg' in layer.datasource
+    
+    def test_real_wms_layers_not_local(self):
+        """Test that WMS layers are correctly identified as remote"""
+        with QGZParser(REAL_QGZ) as parser:
+            parser.extract()
+            parser.parse_xml()
+            layers = parser.parse_layers()
+            
+            wms_layers = [l for l in layers if l.source_type == 'wms']
+            assert len(wms_layers) == 3
+            
+            for layer in wms_layers:
+                assert layer.is_local is False
+                assert layer.layer_type == 'raster'
+    
+    def test_real_update_datasource_roundtrip(self):
+        """Test update_layer_datasource on real project IDs"""
+        with QGZParser(REAL_QGZ) as parser:
+            parser.extract()
+            parser.parse_xml()
+            layers = parser.parse_layers()
+            
+            # Pick a local layer and update its datasource
+            local_layer = next(l for l in layers if l.is_local)
+            new_ds = "dbname='dufour' host=localhost table='migrated'"
+            
+            parser.update_layer_datasource(local_layer.id, new_ds)
+            
+            # Re-parse to verify
+            for ml in parser.root.findall('.//maplayer'):
+                id_elem = ml.find('id')
+                if id_elem is not None and id_elem.text == local_layer.id:
+                    assert ml.find('datasource').text == new_ds
+                    break
+            else:
+                pytest.fail(f"Could not find layer {local_layer.id} after update")

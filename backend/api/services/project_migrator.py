@@ -248,12 +248,23 @@ class ProjectMigrator:
         
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             # Add modified .qgs with original name
-            original_qgs = list(source_dir.glob('*.qgs'))[0]
+            original_qgs_files = list(source_dir.glob('*.qgs'))
+            # Filter out our own 'modified.qgs' temp file
+            original_qgs_files = [f for f in original_qgs_files if f.name != 'modified.qgs']
+            if not original_qgs_files:
+                raise ValueError("No original .qgs file found in extracted directory")
+            original_qgs = original_qgs_files[0]
             zf.write(qgs_file, original_qgs.name)
             
-            # Add all other files (excluding original .qgs)
+            # Files to exclude from repackage
+            exclude_files = {original_qgs, qgs_file, output_path}
+            
+            # Add all other files (excluding .qgs files and output)
             for file_path in source_dir.rglob('*'):
-                if file_path.is_file() and file_path != original_qgs and file_path != qgs_file:
+                if file_path.is_file() and file_path not in exclude_files:
+                    # Skip any temp .qgz files inside extracted dir
+                    if file_path.suffix == '.qgz':
+                        continue
                     arcname = file_path.relative_to(source_dir)
                     zf.write(file_path, arcname)
         

@@ -153,12 +153,16 @@ class QGZParser:
         if not self.root:
             raise ValueError("Must call parse_xml() first")
         
-        # Get project title
+        # Get project title — try <title>, then projectname attribute, then 'Untitled'
         title_elem = self.root.find('.//title')
-        title = title_elem.text if title_elem is not None else 'Untitled'
+        title = title_elem.text if (title_elem is not None and title_elem.text) else None
+        if not title:
+            title = self.root.get('projectname') or 'Untitled'
         
-        # Get project CRS
+        # Get project CRS — try mapcanvas path, then projectCrs path
         crs_elem = self.root.find('.//mapcanvas/destinationsrs/spatialrefsys/authid')
+        if crs_elem is None:
+            crs_elem = self.root.find('.//projectCrs/spatialrefsys/authid')
         crs = crs_elem.text if crs_elem is not None else 'EPSG:3857'
         
         # Get extent
@@ -212,14 +216,23 @@ class QGZParser:
         """
         Parse individual layer element
         
+        Supports both QGIS ≤3.34 (id as XML attribute) and
+        QGIS 3.40+ (id as <id> child element).
+        
         Args:
             layer_elem: XML element for maplayer
             
         Returns:
             LayerInfo or None if layer should be skipped
         """
-        # Get basic info
-        layer_id = layer_elem.get('id', '')
+        # Get layer ID — QGIS 3.40+ uses <id> child element,
+        # older versions may use @id attribute on <maplayer>
+        id_elem = layer_elem.find('id')
+        layer_id = (
+            id_elem.text if id_elem is not None and id_elem.text
+            else layer_elem.get('id', '')
+        )
+        
         layer_name = layer_elem.find('layername').text if layer_elem.find('layername') is not None else 'Unnamed'
         layer_type = layer_elem.get('type', 'unknown')  # vector, raster, plugin
         
@@ -234,12 +247,16 @@ class QGZParser:
         is_local = self._is_local_layer(datasource)
         
         # Get geometry type for vector layers
+        # QGIS ≤3.34 may have <geometrytype> child element;
+        # QGIS 3.40+ uses geometry="Point" attribute on <maplayer>
         geometry_type = None
         if layer_type == 'vector':
             geom_elem = layer_elem.find('.//geometrytype')
-            if geom_elem is not None:
-                # QGIS uses 'Point', 'LineString', 'Polygon', etc.
+            if geom_elem is not None and geom_elem.text:
                 geometry_type = geom_elem.text
+            else:
+                # Fallback: geometry attribute on <maplayer>
+                geometry_type = layer_elem.get('geometry', None)
         
         # Get CRS
         crs_elem = layer_elem.find('.//spatialrefsys/authid')
@@ -349,6 +366,9 @@ class QGZParser:
         """
         Update datasource for a specific layer
         
+        Supports both QGIS ≤3.34 (@id attribute) and
+        QGIS 3.40+ (<id> child element) formats.
+        
         Args:
             layer_id: Layer ID to update
             new_datasource: New datasource connection string
@@ -356,8 +376,17 @@ class QGZParser:
         if not self.root:
             raise ValueError("Must parse XML first")
         
-        # Find layer element
+        # Try 1: Find by @id attribute (QGIS ≤3.34)
         layer_elem = self.root.find(f".//maplayer[@id='{layer_id}']")
+        
+        # Try 2: Find by <id> child element text (QGIS 3.40+)
+        if layer_elem is None:
+            for ml in self.root.findall('.//maplayer'):
+                id_elem = ml.find('id')
+                if id_elem is not None and id_elem.text == layer_id:
+                    layer_elem = ml
+                    break
+        
         if layer_elem is None:
             raise ValueError(f"Layer {layer_id} not found")
         
@@ -365,6 +394,13 @@ class QGZParser:
         datasource_elem = layer_elem.find('datasource')
         if datasource_elem is not None:
             datasource_elem.text = new_datasource
+            
+            # Also update provider to 'postgres' for PostGIS datasources
+            if "dbname=" in new_datasource and "table=" in new_datasource:
+                provider_elem = layer_elem.find('.//provider')
+                if provider_elem is not None:
+                    provider_elem.text = 'postgres'
+            
             logger.info(f"Updated datasource for layer {layer_id}")
         else:
             logger.warning(f"No datasource element found for layer {layer_id}")
