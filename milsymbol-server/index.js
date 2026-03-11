@@ -18,7 +18,7 @@
 const os = require("os");
 const http = require("http");
 const ms = require("milsymbol");
-const { createCanvas } = require("canvas");
+const { createCanvas, loadImage } = require("canvas");
 const url = require("url");
 
 // Configuration via environment variables
@@ -29,27 +29,27 @@ const defaultSize = parseInt(process.env.MILSYMBOL_DEFAULT_SIZE || "100", 10);
 const maxCanvasSize = parseInt(process.env.MILSYMBOL_MAX_CANVAS || "2000", 10);
 
 /**
- * Extend milsymbol Symbol prototype for Node.js canvas rendering (PNG)
+ * Render a milsymbol Symbol to a PNG canvas via SVG-to-Canvas.
+ * 
+ * The CJS build of milsymbol 1.3.3 does not expose canvasDraw on
+ * Symbol.prototype, so the old asNodeCanvas() approach crashes with
+ * "Cannot read properties of undefined (reading 'call')".
+ * 
+ * Instead we render SVG first (which works perfectly), then use
+ * node-canvas's loadImage() to rasterize the SVG into a PNG canvas.
  */
-ms.Symbol.prototype.asNodeCanvas = function () {
-  ms._brokenPath2D = true;
-  const ratio = 1;
-  const canvas = createCanvas(
-    Math.min(this.width, maxCanvasSize),
-    Math.min(this.height, maxCanvasSize)
-  );
+async function renderSymbolToPngCanvas(symbol) {
+  const svg = symbol.asSVG();
+  const svgBuffer = Buffer.from(svg);
+  const img = await loadImage(svgBuffer);
+
+  const width = Math.min(img.width, maxCanvasSize);
+  const height = Math.min(img.height, maxCanvasSize);
+  const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
-  ctx.scale(
-    (ratio * this.style.size) / 100,
-    (ratio * this.style.size) / 100
-  );
-  ctx.translate(
-    -(this.bbox.x1 - this.style.strokeWidth - this.style.outlineWidth),
-    -(this.bbox.y1 - this.style.strokeWidth - this.style.outlineWidth)
-  );
-  this.canvasDraw.call(this, ctx, this.drawInstructions);
+  ctx.drawImage(img, 0, 0, width, height);
   return canvas;
-};
+}
 
 /**
  * Build a milsymbol options object, only allowing valid milsymbol properties.
@@ -211,15 +211,25 @@ const server = http.createServer((req, res) => {
 
     if (format === "PNG") {
       const symbol = new ms.Symbol(sidc, options);
-      const canvas = symbol.asNodeCanvas();
-      const stream = canvas.createPNGStream();
-      
-      stats.pngRendered++;
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "image/png");
-      res.setHeader("Cache-Control", "public, max-age=86400"); // 24h cache
-      res.setHeader("X-SIDC-Format", validation.format);
-      stream.pipe(res);
+      renderSymbolToPngCanvas(symbol).then((canvas) => {
+        const stream = canvas.createPNGStream();
+        stats.pngRendered++;
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "image/png");
+        res.setHeader("Cache-Control", "public, max-age=86400"); // 24h cache
+        res.setHeader("X-SIDC-Format", validation.format);
+        stream.pipe(res);
+      }).catch((err) => {
+        stats.errors++;
+        console.error(`Error rendering PNG for ${sidc}: ${err.message}`);
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          error: "PNG rendering failed",
+          sidc: sidc,
+          message: err.message
+        }));
+      });
       return;
     }
 

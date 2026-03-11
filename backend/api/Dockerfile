@@ -47,7 +47,19 @@ COPY milsymbol-server/package.json milsymbol-server/package-lock.json* ./
 RUN npm install --production
 
 # Verify canvas native module loads correctly (fail build early if broken)
-RUN node -e "require('canvas'); require('milsymbol'); console.log('✅ milsymbol + canvas OK')"
+RUN node -e "\
+  const { createCanvas, loadImage } = require('canvas');\
+  const ms = require('milsymbol');\
+  const sym = new ms.Symbol('SFG-UCI---', { size: 50 });\
+  const svg = sym.asSVG();\
+  if (!svg || svg.length < 100) throw new Error('SVG rendering broken');\
+  console.log('✅ milsymbol SVG OK (' + svg.length + ' bytes)');\
+  loadImage(Buffer.from(svg)).then(img => {\
+    const c = createCanvas(img.width, img.height);\
+    c.getContext('2d').drawImage(img, 0, 0);\
+    console.log('✅ SVG-to-PNG via loadImage OK (' + img.width + 'x' + img.height + ')');\
+  }).catch(e => { console.error('❌ loadImage failed:', e.message); process.exit(1); });\
+"
 
 COPY milsymbol-server/index.js .
 
