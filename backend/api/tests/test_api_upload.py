@@ -12,6 +12,7 @@ from main import app
 from services.qgz_parser import ProjectInfo, LayerInfo
 from services.layer_extractor import MigrationResult
 
+pytestmark = pytest.mark.unit
 
 client = TestClient(app)
 

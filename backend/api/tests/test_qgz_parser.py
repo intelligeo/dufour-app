@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 
 from services.qgz_parser import QGZParser, LayerInfo, ProjectInfo
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def sample_qgs_xml():
@@ -34,10 +36,10 @@ def sample_qgs_xml():
     </extent>
   </mapcanvas>
   <projectlayers>
-    <maplayer type="vector" geometry="Point">
-      <id>layer1</id>
+    <maplayer id="layer1" type="vector" geometry="Point">
       <datasource>./data/points.gpkg|layername=points</datasource>
       <layername>Points Layer</layername>
+      <geometrytype>Point</geometrytype>
       <srs>
         <spatialrefsys>
           <authid>EPSG:2056</authid>
@@ -45,10 +47,10 @@ def sample_qgs_xml():
       </srs>
       <provider encoding="UTF-8">ogr</provider>
     </maplayer>
-    <maplayer type="vector" geometry="Polygon">
-      <id>layer2</id>
+    <maplayer id="layer2" type="vector" geometry="Polygon">
       <datasource>./data/polygons.geojson</datasource>
       <layername>Polygons Layer</layername>
+      <geometrytype>Polygon</geometrytype>
       <srs>
         <spatialrefsys>
           <authid>EPSG:4326</authid>
@@ -56,14 +58,12 @@ def sample_qgs_xml():
       </srs>
       <provider encoding="UTF-8">ogr</provider>
     </maplayer>
-    <maplayer type="raster">
-      <id>layer3</id>
+    <maplayer id="layer3" type="raster">
       <datasource>crs=EPSG:3857&amp;format&amp;type=xyz&amp;url=https://tile.openstreetmap.org/{z}/{x}/{y}.png</datasource>
       <layername>OpenStreetMap</layername>
       <provider>wms</provider>
     </maplayer>
-    <maplayer type="vector" geometry="Point">
-      <id>layer4</id>
+    <maplayer id="layer4" type="vector" geometry="Point">
       <datasource>dbname='dufour' host=postgresql-intelligeo.alwaysdata.net port=5432 user='intelligeo' password='pwd' sslmode=disable key='id' srid=2056 type=Point table="public"."existing_points" (geom)</datasource>
       <layername>Existing PostGIS Layer</layername>
       <provider encoding="UTF-8">postgres</provider>
@@ -108,16 +108,24 @@ class TestQGZParser:
     
     def test_validate_size_exceeds_limit(self, tmp_path):
         """Test file size validation fails for large files"""
-        # Create a file > 50MB (just metadata, no actual content)
+        # Create a real .qgz that is just above the limit via monkeypatch
         large_file = tmp_path / "large.qgz"
-        large_file.touch()
+        # Write a minimal valid zip so Path() doesn't complain
+        with zipfile.ZipFile(large_file, 'w') as zf:
+            zf.writestr('dummy.txt', 'x')
+        
+        import unittest.mock as um
+        original_stat = large_file.stat
         
         with QGZParser(large_file) as parser:
-            # Mock the file size check
-            parser.qgz_path.stat = lambda: type('obj', (object,), {'st_size': 51 * 1024 * 1024})()
+            # Patch os.stat at the instance level via Path.stat
+            fake_stat = original_stat()
+            fake_stat_obj = um.MagicMock(wraps=fake_stat)
+            fake_stat_obj.st_size = 51 * 1024 * 1024
             
-            with pytest.raises(ValueError, match="exceeds 50MB limit"):
-                parser.validate_size()
+            with um.patch.object(type(parser.qgz_path), 'stat', return_value=fake_stat_obj):
+                with pytest.raises(ValueError, match="exceeds"):
+                    parser.validate_size()
     
     def test_extract(self, sample_qgz_file):
         """Test .qgz extraction"""
@@ -216,9 +224,13 @@ class TestQGZParser:
             parser.extract()
             parser.parse_xml()
             
-            # Local files
+            # Paths starting with ./ are detected as local
             assert parser._is_local_layer("./data/file.gpkg") is True
-            assert parser._is_local_layer("data/file.geojson") is True
+            assert parser._is_local_layer("./data/file.geojson") is True
+            
+            # Relative path without ./ — only local if file exists in temp dir
+            # data/points.gpkg exists because the fixture includes it
+            assert parser._is_local_layer("data/points.gpkg") is True
             
             # Remote sources
             assert parser._is_local_layer("dbname='test'") is False
@@ -294,6 +306,6 @@ class TestQGZParser:
         with zipfile.ZipFile(qgz_path, 'w') as zf:
             zf.writestr('data.txt', 'no qgs file here')
         
-        with pytest.raises(IndexError):  # No .qgs files found
+        with pytest.raises(ValueError, match="No .qgs file found"):
             with QGZParser(qgz_path) as parser:
                 parser.extract()

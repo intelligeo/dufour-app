@@ -10,6 +10,8 @@ from services.project_migrator import ProjectMigrator
 from services.qgz_parser import ProjectInfo, LayerInfo
 from services.layer_extractor import MigrationResult
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def project_migrator():

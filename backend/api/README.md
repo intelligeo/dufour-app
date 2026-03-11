@@ -1,6 +1,6 @@
 # Dufour Middleware API
 
-Backend API service per la gestione di progetti QGIS e upload dati in Dufour-app.
+Backend API service per la gestione di progetti QGIS, upload dati PostGIS e **rendering simboli militari NATO** in Dufour-app.
 
 ## 📚 Documentazione Completa
 
@@ -24,30 +24,51 @@ Vedi [API_GUIDE.md](./API_GUIDE.md) per:
 - Esempi di codice (Python, JavaScript, cURL)
 - Guida all'integrazione OpenLayers
 - Schema database
+- **Military Symbols API (APP-6D / MIL-STD-2525C)**
+- **Print Composition API (overlay simboli su mappe)**
 - Configurazione environment variables
 - Troubleshooting
 
 ## 🎯 Scopo
 
-Il Middleware API funge da **Content Management System** per progetti QGIS:
+Il Middleware API funge da **Content Management System** per progetti QGIS e da **piattaforma di rendering simboli militari**:
 - Riceve progetti .qgz da QGIS Desktop o upload manuale
 - Migra automaticamente layer locali a PostGIS
 - Salva progetti in PostgreSQL BYTEA
 - Fornisce WMS proxy per QGIS Server
 - Genera configurazioni QWC2 per il frontend
 - Gestisce upload dati PostGIS bulk
+- **Rendering simboli NATO** (APP-6D + MIL-STD-2525C) via milsymbol-server
+- **Composizione print** con overlay simboli su base map QGIS
 
 ## 🏗️ Architettura
 
 ```
-QGIS Desktop Plugin / Frontend Upload
-            ↓
-    Dufour Middleware API (FastAPI)
-            ↓
-    ├── PostgreSQL + PostGIS (storage progetti e dati)
-    └── QGIS Server (rendering WMS)
-            ↓
-    Dufour Frontend (React + OpenLayers)
+┌─────────────────────────────────────────────────────┐
+│  Docker Container (single process: supervisord)      │
+│                                                      │
+│  ┌───────────────────────────────────────────┐      │
+│  │  FastAPI Middleware (:3000)                │      │
+│  │                                           │      │
+│  │  /api/projects/*     → CRUD + WMS proxy   │      │
+│  │  /api/databases/*    → PostGIS bulk ops   │      │
+│  │  /api/symbols/*      → Milsymbol proxy    │      │
+│  │  /api/print/compose  → Print + overlay    │      │
+│  │  /api/v1/themes/*    → QWC2 config        │      │
+│  └──────┬─────────────────────┬──────────────┘      │
+│         │                     │                      │
+│  ┌──────▼──────┐  ┌──────────▼──────────┐          │
+│  │ milsymbol   │  │ QGIS Server         │          │
+│  │ server      │  │ (:8080)             │          │
+│  │ Node.js 18  │  │ WMS/WFS/WMTS        │          │
+│  │ (:2525)     │  │ + supervisord       │          │
+│  └─────────────┘  └─────────────────────┘          │
+└──────────────────────┼───────────────────────────────┘
+                       │ SQL
+                       ↓
+┌─────────────────────────────────────────────────────┐
+│  PostgreSQL 16 + PostGIS (alwaysdata.net)            │
+└─────────────────────────────────────────────────────┘
 ```
 
 ## 🚀 Avvio Rapido
@@ -75,97 +96,76 @@ curl http://localhost:3000/
 
 # Status dettagliato
 curl http://localhost:3000/api/status
+
+# Milsymbol server health
+curl http://localhost:3000/api/symbols/health
 ```
 
 ## 📡 Endpoints Principali
 
 ### Progetti QGIS
 
-#### `GET /api/projects`
-Lista tutti i progetti disponibili
-
-**Response:**
-```json
-[
-  {
-    "name": "tactical_ops",
-    "title": "Tactical Operations",
-    "created_at": "2026-03-06T10:30:00",
-    "wms_url": "http://qgis-server:80/...",
-    "extent": [minx, miny, maxx, maxy]
-  }
-]
-```
-
-#### `POST /api/projects`
-Pubblica un nuovo progetto QGIS
-
-**Request (multipart/form-data):**
-```
-name: tactical_ops
-title: Tactical Operations
-description: Military tactical planning
-file: tactical_ops.qgs (binary)
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Project published successfully",
-  "project": {...},
-  "wms_url": "http://qgis-server:80/...",
-  "wms_capabilities": "http://qgis-server:80/...&REQUEST=GetCapabilities"
-}
-```
-
-#### `DELETE /api/projects/{name}`
-Elimina un progetto
+| Method | Endpoint | Descrizione |
+|--------|----------|-------------|
+| `GET` | `/api/projects` | Lista tutti i progetti |
+| `GET` | `/api/projects/{name}` | Dettagli progetto |
+| `POST` | `/api/projects` | Upload e migra progetto .qgz |
+| `DELETE` | `/api/projects/{name}` | Elimina progetto |
 
 ### Upload Dati PostGIS
 
-#### `POST /api/databases/{db}/tables`
-Crea una nuova tabella PostGIS
+| Method | Endpoint | Descrizione |
+|--------|----------|-------------|
+| `POST` | `/api/databases/{db}/tables` | Crea tabella PostGIS |
+| `POST` | `/api/databases/{db}/tables/{table}/upload` | Upload features in bulk |
+| `GET` | `/api/databases/{db}/tables` | Lista tabelle |
 
-**Request Body:**
-```json
-{
-  "schema_name": "public",
-  "table_name": "military_units",
-  "columns": [
-    {"name": "id", "type": "SERIAL PRIMARY KEY"},
-    {"name": "name", "type": "VARCHAR(255)"},
-    {"name": "unit_type", "type": "VARCHAR(100)"}
-  ],
-  "geometry_column": "geom",
-  "geometry_type": "POINT",
-  "srid": 3857,
-  "overwrite": false
-}
-```
+### Simboli Militari 🎖️
 
-#### `POST /api/databases/{db}/tables/{table}/upload`
-Upload features in bulk (COPY format)
+| Method | Endpoint | Descrizione |
+|--------|----------|-------------|
+| `GET` | `/api/symbols/health` | Health check milsymbol-server |
+| `GET` | `/api/symbols/{SIDC}.svg` | Rendering SVG di un simbolo |
+| `GET` | `/api/symbols/{SIDC}.png` | Rendering PNG di un simbolo |
+| `POST` | `/api/symbols/batch` | Rendering batch (max 100) |
+| `GET` | `/api/symbols/validate/{SIDC}` | Validazione codice SIDC |
+| `DELETE` | `/api/symbols/cache` | Svuota cache simboli |
 
-**Request (multipart/form-data):**
-```
-schema: public
-file: data.csv (CSV in COPY format)
-```
+### Print Composition 🖨️
+
+| Method | Endpoint | Descrizione |
+|--------|----------|-------------|
+| `POST` | `/api/print/compose` | Mappa stampabile con overlay simboli militari |
 
 ### QWC Themes
 
-#### `GET /api/v1/themes`
-Lista tutti i temi QWC2 disponibili
+| Method | Endpoint | Descrizione |
+|--------|----------|-------------|
+| `GET` | `/api/v1/themes` | Lista temi QWC2 |
+| `GET` | `/api/v1/themes/{name}` | Configurazione tema |
 
-#### `GET /api/v1/themes/{name}`
-Ottiene configurazione completa di un tema
+## 🎖️ Esempi Simboli Militari
+
+```bash
+# Fanteria amica, compagnia (APP-6D, SVG)
+curl http://localhost:3000/api/symbols/10031000001101001500.svg
+
+# Corazzato ostile (2525C, PNG, 120px)
+curl -o symbol.png "http://localhost:3000/api/symbols/SHG-UCF---.png?size=120"
+
+# Validazione SIDC
+curl http://localhost:3000/api/symbols/validate/10031000001101001500
+# → {"sidc":"10031000001101001500","valid":true,"format":"APP-6D","dimension":"Ground"}
+
+# Batch rendering (3 simboli)
+curl -X POST http://localhost:3000/api/symbols/batch \
+  -H "Content-Type: application/json" \
+  -d '{"symbols":[{"sidc":"10031000001101001500"},{"sidc":"SFG-UCI---"}],"format":"svg"}'
+```
 
 ## 🔧 Configurazione
 
 ### Variabili d'Ambiente
-
-File `.env` (copia da `.env.example`):
 
 ```bash
 # Database
@@ -176,46 +176,45 @@ POSTGIS_USER=gisuser
 POSTGIS_PASSWORD=gispassword
 
 # QGIS Server
-QGIS_SERVER_URL=http://qgis-server:80
+QGIS_SERVER_URL=http://localhost:8080
 
-# Paths
-PROJECTS_DIR=/data/projects
-QWC_CONFIG_DIR=/qwc-config
-```
-
-### Volumi Docker
-
-```yaml
-volumes:
-  - ./qgis-server/projects:/data/projects  # Progetti QGIS
-  - ./qwc-config:/qwc-config               # Configurazioni QWC
-  - ./backend/api:/app                     # Hot reload development
+# Milsymbol Server (embedded sidecar)
+MILSYMBOL_SERVER_URL=http://localhost:2525
+MILSYMBOL_PORT=2525
+MILSYMBOL_DEFAULT_SIZE=100
+DEFAULT_SIDC_FORMAT=APP-6D     # APP-6D or 2525C
+SYMBOL_CACHE_SIZE=512
 ```
 
 ## 📁 Struttura del Codice
 
 ```
 backend/api/
-├── main.py                  # FastAPI app e routes
-├── requirements.txt         # Python dependencies
-├── Dockerfile              # Container image
-├── .env.example           # Environment template
+├── main.py                    # FastAPI app e routes (tutti gli endpoints)
+├── requirements.txt           # Python dependencies
+├── Dockerfile                 # Container image (Ubuntu 22.04 + QGIS Server + Node.js)
+├── API_GUIDE.md              # Documentazione API completa
+├── config/
+│   └── milsymbol_config.json # Configurazione rendering simboli
 ├── models/
-│   └── schemas.py         # Pydantic models
-└── services/
-    ├── project_service.py # Gestione progetti QGIS
-    ├── data_service.py    # Upload dati PostGIS
-    └── qwc_service.py     # Generazione config QWC2
+│   └── schemas.py            # Pydantic models
+├── services/
+│   ├── project_service.py    # Gestione progetti QGIS
+│   ├── data_service.py       # Upload dati PostGIS
+│   ├── qwc_service.py        # Generazione config QWC2
+│   ├── symbol_service.py     # 🎖️ Proxy milsymbol-server + cache LRU
+│   ├── print_service.py      # 🖨️ Composizione print con overlay simboli
+│   ├── qgis_storage_service.py # Storage progetti in PostgreSQL
+│   ├── project_migrator.py   # Migrazione layer locali → PostGIS
+│   ├── layer_extractor.py    # Estrazione layer da .qgz
+│   └── qgz_parser.py        # Parser file QGIS
+└── tests/
+    ├── test_symbol_service.py # Test validazione SIDC, cache, service
+    ├── test_api_upload.py
+    ├── test_layer_extractor.py
+    ├── test_project_migrator.py
+    └── ...
 ```
-
-## 🔄 Workflow Pubblicazione
-
-1. **QGIS Desktop**: Utente crea progetto `tactical.qgs`
-2. **Plugin**: Upload progetto via `POST /api/projects`
-3. **API**: Salva in `/data/projects/tactical.qgs`
-4. **API**: Genera `/qwc-config/themes/tactical.json`
-5. **QGIS Server**: Serve il progetto via WMS
-6. **Frontend**: Carica tema via `GET /api/v1/themes/tactical`
 
 ## 🧪 Testing
 
@@ -228,63 +227,65 @@ curl http://localhost:3000/
 # Lista progetti
 curl http://localhost:3000/api/projects
 
-# Pubblica progetto
-curl -X POST http://localhost:3000/api/projects \
-  -F "name=test" \
-  -F "title=Test Project" \
-  -F "file=@project.qgs"
+# Milsymbol health
+curl http://localhost:3000/api/symbols/health
+
+# Render simbolo NATO
+curl http://localhost:3000/api/symbols/10031000001101001500.svg
 
 # Status sistema
 curl http://localhost:3000/api/status
 ```
 
-### Test con Python
+### Test con pytest
 
-```python
-import requests
+```bash
+cd backend/api
+pip install -r requirements.txt
+pytest tests/ -v
 
-# Upload progetto
-with open('tactical.qgs', 'rb') as f:
-    response = requests.post(
-        'http://localhost:3000/api/projects',
-        data={'name': 'tactical', 'title': 'Tactical Ops'},
-        files={'file': f}
-    )
-    print(response.json())
+# Solo test simboli (senza server milsymbol)
+pytest tests/test_symbol_service.py -v -m "not integration"
+
+# Test integrazione (richiede milsymbol-server attivo)
+pytest tests/test_symbol_service.py -v -m integration
 ```
 
 ## 🐛 Troubleshooting
 
 ### API non raggiungibile
 ```bash
-# Verifica container in esecuzione
 docker ps | grep dufour-api
-
-# Logs
 docker logs dufour-api
 ```
 
 ### QGIS Server non risponde
 ```bash
-# Test GetCapabilities
 curl "http://localhost:8080/cgi-bin/qgis_mapserv.fcgi?SERVICE=WMS&REQUEST=GetCapabilities"
+```
+
+### Milsymbol server offline
+```bash
+# Test diretto sidecar
+curl http://localhost:2525/health
+
+# Test via proxy API
+curl http://localhost:3000/api/symbols/health
+
+# Verifica processo Node.js nel container
+docker exec dufour-api ps aux | grep node
 ```
 
 ### Database connection error
 ```bash
-# Test connessione PostGIS
 docker exec dufour-postgis psql -U gisuser -d gisdb -c "SELECT version();"
 ```
 
-## 📚 Prossimi Passi
-
-Ora che il middleware è pronto:
-1. **Fase 0**: Fork/modifica qgis-cloud-plugin per puntare a questa API
-2. **Fase 2**: Adatta frontend per caricare progetti dinamicamente
-3. **Fase 3**: Test end-to-end QGIS Desktop → WebApp
-
 ## 🔗 Link Utili
 
-- FastAPI Docs: https://fastapi.tiangolo.com
-- QWC2 Themes: https://github.com/qgis/qwc2
-- PostGIS: https://postgis.net
+- [API_GUIDE.md](./API_GUIDE.md) — Guida API completa con esempi
+- [milsymbol-server/README.md](../../milsymbol-server/README.md) — Documentazione server simboli
+- [FastAPI Docs](https://fastapi.tiangolo.com/)
+- [milsymbol.js](https://www.npmjs.com/package/milsymbol) — Libreria simboli NATO
+- [QGIS Server Guide](https://docs.qgis.org/latest/en/docs/server_manual/)
+- [PostGIS Documentation](https://postgis.net/documentation/)

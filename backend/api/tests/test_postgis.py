@@ -8,6 +8,8 @@ from sqlalchemy import text
 
 from database.connection import db, get_db_session
 
+pytestmark = pytest.mark.integration
+
 
 class TestPostGISConnection:
     """Test suite for PostgreSQL/PostGIS connectivity"""

@@ -22,6 +22,9 @@ from services.symbol_service import (
 )
 
 
+pytestmark = pytest.mark.unit
+
+
 # ─── SIDC Validation Tests ────────────────────────────────────
 
 class TestSIDCValidation:
@@ -71,10 +74,9 @@ class TestSIDCValidation:
         assert result.valid is False
     
     def test_invalid_app6d_wrong_length(self):
-        # 19 chars - not valid as APP-6D
+        # 19 chars — too long for 2525C (max 15) and too short for APP-6D (exactly 20)
         result = validate_sidc("1003100000110100150")
-        assert result.valid is True  # Matches 2525C pattern (10-15 chars) if 15+
-        # Actually 19 chars doesn't match either pattern
+        assert result.valid is False
     
     def test_app6d_exactly_20_chars(self):
         result = validate_sidc("12345678901234567890")

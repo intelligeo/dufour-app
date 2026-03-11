@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Dufour Middleware API is a FastAPI-based service for managing QGIS projects and PostGIS spatial data. It provides endpoints for uploading projects, migrating layers, and serving maps via OGC WMS.
+The Dufour Middleware API is a FastAPI-based service for managing QGIS projects, PostGIS spatial data, and **military symbol rendering**. It provides endpoints for uploading projects, migrating layers, serving maps via OGC WMS, and rendering NATO military symbols (APP-6D / MIL-STD-2525C) through an embedded milsymbol server.
 
 ## 📚 Interactive Documentation
 
@@ -141,6 +141,22 @@ curl -X POST "https://dufour-api.onrender.com/api/projects" \
 |--------|----------|-------------|
 | GET | `/api/v1/themes` | List QWC2 themes |
 | GET | `/api/v1/themes/{name}` | Get theme configuration |
+
+### Military Symbols 🎖️
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/symbols/health` | Milsymbol server health & stats |
+| GET | `/api/symbols/{SIDC}.{svg\|png}` | Render single symbol (SVG or PNG) |
+| POST | `/api/symbols/batch` | Batch render multiple symbols |
+| GET | `/api/symbols/validate/{SIDC}` | Validate SIDC code |
+| DELETE | `/api/symbols/cache` | Clear server-side symbol cache |
+
+### Print Composition 🖨️
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/print/compose` | Compose print map with military symbol overlays |
 
 ---
 
@@ -366,11 +382,12 @@ CREATE TABLE project_layers (
 );
 ```
 
----
 
-## �️ Military Symbols API
+## 🎖️ Military Symbols API
 
 The Dufour API includes an embedded military symbol rendering service based on [milsymbol](https://github.com/spatialillusions/milsymbol). It supports both **APP-6D** (20-character) and **MIL-STD-2525C** (15-character) SIDC codes, with SVG and PNG output.
+
+The milsymbol-server runs as a sidecar process (Node.js, port 2525) inside the same Docker container. FastAPI proxies and caches all requests.
 
 ### Render a Symbol (SVG)
 
@@ -388,10 +405,26 @@ curl "https://dufour-api.onrender.com/api/symbols/SFG-UCI---.svg?uniqueDesignati
 curl -o symbol.png "https://dufour-api.onrender.com/api/symbols/SFG-UCI---.png?size=200"
 ```
 
+### Modifier Options (Query String)
+
+All milsymbol.js modifiers are supported as query parameters:
+
+| Parameter | Type | Description | Example |
+|-----------|------|-------------|---------|
+| `size` | int | Symbol size in pixels | `100` |
+| `uniqueDesignation` | string | Unit designation | `1/INF` |
+| `higherFormation` | string | Higher formation text | `4th Div` |
+| `quantity` | string | Quantity indicator | `3` |
+| `staffComments` | string | Staff comments | `Advancing` |
+| `direction` | number | Direction of movement (degrees) | `90` |
+| `speed` | string | Speed indicator | `Fast` |
+| `specialHeadquarters` | string | Special HQ marker | `NATO` |
+| `square` | bool | Force square symbol | `true` |
+
 ### Supported Dimensions (APP-6D)
 
-| Char | Dimension | Description |
-|------|-----------|-------------|
+| Char (pos 5) | Dimension | Description |
+|--------------|-----------|-------------|
 | G | Ground | Land forces, equipment, installations |
 | A | Air | Fixed wing, rotary wing, UAV |
 | S | Sea Surface | Ships, boats, naval |
@@ -419,6 +452,8 @@ curl https://dufour-api.onrender.com/api/symbols/validate/10031000001101001500
 
 ### Batch Rendering
 
+Render up to 100 symbols in a single request. Efficient for ORBAT displays.
+
 ```bash
 curl -X POST "https://dufour-api.onrender.com/api/symbols/batch" \
   -H "Content-Type: application/json" \
@@ -437,9 +472,9 @@ curl -X POST "https://dufour-api.onrender.com/api/symbols/batch" \
 ```json
 {
   "results": [
-    {"sidc": "10031000001101001500", "content": "<base64>", "content_type": "image/svg+xml"},
-    {"sidc": "SFG-UCI---", "content": "<base64>", "content_type": "image/svg+xml"},
-    {"sidc": "10061000001102001600", "content": "<base64>", "content_type": "image/svg+xml"}
+    {"sidc": "10031000001101001500", "content": "<base64>", "content_type": "image/svg+xml", "metadata": {"sidc_format": "APP-6D", "cached": false}},
+    {"sidc": "SFG-UCI---", "content": "<base64>", "content_type": "image/svg+xml", "metadata": {"sidc_format": "2525C", "cached": false}},
+    {"sidc": "10061000001102001600", "content": "<base64>", "content_type": "image/svg+xml", "metadata": {"sidc_format": "APP-6D", "cached": false}}
   ],
   "total": 3,
   "rendered": 3,
@@ -447,51 +482,155 @@ curl -X POST "https://dufour-api.onrender.com/api/symbols/batch" \
 }
 ```
 
-### Health Check
+### Symbol Health Check
 
 ```bash
 curl https://dufour-api.onrender.com/api/symbols/health
 ```
 
----
-
-## �🏗️ Architecture
-
-```
-┌─────────────────────┐
-│  Frontend (React)   │
-│  + OpenLayers       │
-│  + milsymbol.js     │
-└──────────┬──────────┘
-           │
-           │ HTTPS
-           ↓
-┌─────────────────────┐
-│  Nginx Reverse      │
-│  Proxy              │
-└──────────┬──────────┘
-           │
-           │ /api/*
-           ↓
-┌─────────────────────────────────────┐
-│  Dufour Middleware API (FastAPI)    │
-│  :3000                             │
-│                                    │
-│  /api/symbols/* ──→ Milsymbol Srv  │
-│                     :2525 (Node.js)│
-│  /api/projects/*/wms ──→ QGIS Srv │
-│                          :8080     │
-└──────┬──────────────────────────────┘
-       │
-       │ SQL
-       ↓
-┌─────────────────────┐
-│  PostgreSQL +       │
-│  PostGIS            │
-└─────────────────────┘
+**Response:**
+```json
+{
+  "online": true,
+  "url": "http://localhost:2525",
+  "status": "online",
+  "service": "dufour-milsymbol-server",
+  "version": "1.0.0",
+  "cache": {"size": 42, "max_size": 512},
+  "config": {"default_format": "APP-6D", "default_size": 100}
+}
 ```
 
+### Clear Symbol Cache
+
+```bash
+curl -X DELETE https://dufour-api.onrender.com/api/symbols/cache
+```
+
+### Caching Behavior
+
+- **Server-side**: LRU cache (512 entries) in FastAPI proxy
+- **Client-side**: LRU cache (1024 entries) in browser via `symbolService.js`
+- **HTTP headers**: `Cache-Control: public, max-age=86400` (24h browser/CDN caching)
+
 ---
+
+## 🖨️ Print Composition API
+
+Compose print-ready maps by overlaying military symbols on QGIS Server base maps.
+
+### POST `/api/print/compose`
+
+```bash
+curl -X POST "https://dufour-api.onrender.com/api/print/compose" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "extent": {
+      "xmin": 800000, "ymin": 5900000,
+      "xmax": 860000, "ymax": 5960000,
+      "crs": "EPSG:3857"
+    },
+    "width": 1200,
+    "height": 800,
+    "dpi": 300,
+    "project": "CHE_Basemaps",
+    "layers": ["National_Map"],
+    "symbols": [
+      {
+        "sidc": "10031000001211000000",
+        "lon": 7.45, "lat": 46.95,
+        "size": 48, "label": "1/52 Inf Bn"
+      },
+      {
+        "sidc": "10061000001102001600",
+        "lon": 7.60, "lat": 47.05,
+        "size": 48, "label": "2 Arm Coy"
+      }
+    ]
+  }'
+```
+
+**Response:** PNG image (`image/png`)
+
+### Print Composition Process
+
+1. Fetches base map from QGIS Server via WMS `GetMap`
+2. Fetches all military symbols from milsymbol-server (in parallel)
+3. Converts WGS84 lon/lat → pixel coordinates for the given extent
+4. Overlays symbols using Pillow image composition
+5. Adds text labels with shadow below each symbol
+6. Returns a composite PNG at the requested DPI
+
+### Print Request Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `extent` | object | ✅ | — | Map extent (`xmin`, `ymin`, `xmax`, `ymax`, `crs`) |
+| `width` | int | ❌ | 1200 | Output width in pixels |
+| `height` | int | ❌ | 800 | Output height in pixels |
+| `dpi` | int | ❌ | 300 | DPI for print quality |
+| `project` | string | ❌ | — | QGIS project name for base map |
+| `layers` | array | ❌ | — | WMS layers to include |
+| `symbols` | array | ✅ | — | Array of `SymbolOverlay` objects |
+
+### SymbolOverlay Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `sidc` | string | ✅ | — | SIDC code (APP-6D or 2525C) |
+| `lon` | float | ✅ | — | WGS84 longitude |
+| `lat` | float | ✅ | — | WGS84 latitude |
+| `size` | int | ❌ | 48 | Symbol size in pixels |
+| `label` | string | ❌ | — | Text label below symbol |
+| `options` | object | ❌ | — | Additional milsymbol options |
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Frontend (React + Vite)                             │
+│  ┌───────────────┐ ┌──────────────┐ ┌─────────────┐│
+│  │ OpenLayers    │ │ milsymbol.js │ │ ORBAT       ││
+│  │ Map           │ │ (client-side)│ │ Manager     ││
+│  └───────┬───────┘ └──────┬───────┘ └──────┬──────┘│
+│          │                │                 │        │
+│          │   symbolService.js (LRU cache)   │        │
+│          └────────────┬─────────────────────┘        │
+└───────────────────────┼──────────────────────────────┘
+                        │ HTTPS
+                        ↓
+┌─────────────────────────────────────────────────────┐
+│  Nginx Reverse Proxy                                 │
+└───────────────────────┼──────────────────────────────┘
+                        │ /api/*
+                        ↓
+┌─────────────────────────────────────────────────────┐
+│  Docker Container (Render.com)                       │
+│                                                      │
+│  ┌───────────────────────────────────────────┐      │
+│  │  FastAPI Middleware (:3000)                │      │
+│  │                                           │      │
+│  │  /api/symbols/* ──→ Milsymbol Server      │      │
+│  │  /api/print/*   ──→ Print Service + Pillow│      │
+│  │  /api/projects/*/wms ──→ QGIS Server      │      │
+│  └──────┬─────────────────────┬──────────────┘      │
+│         │                     │                      │
+│  ┌──────▼──────┐  ┌──────────▼──────────┐          │
+│  │ milsymbol   │  │ QGIS Server         │          │
+│  │ server      │  │ (:8080)             │          │
+│  │ Node.js     │  │ WMS/WFS/WMTS        │          │
+│  │ (:2525)     │  │                     │          │
+│  └─────────────┘  └─────────────────────┘          │
+└──────────────────────┼───────────────────────────────┘
+                       │ SQL
+                       ↓
+┌─────────────────────────────────────────────────────┐
+│  PostgreSQL 16 + PostGIS (alwaysdata.net)            │
+│  Projects (BYTEA) + Spatial Data + ORBAT Storage     │
+└─────────────────────────────────────────────────────┘
+```
 
 ## 🔧 Configuration
 
@@ -515,6 +654,13 @@ PROJECTS_DIR=/data/projects
 API_HOST=0.0.0.0
 API_PORT=3000
 CORS_ORIGINS=https://dufour-app.onrender.com,http://localhost:5173
+
+# Milsymbol Server (embedded sidecar)
+MILSYMBOL_SERVER_URL=http://localhost:2525
+MILSYMBOL_PORT=2525
+MILSYMBOL_DEFAULT_SIZE=100
+DEFAULT_SIDC_FORMAT=APP-6D
+SYMBOL_CACHE_SIZE=512
 ```
 
 ---

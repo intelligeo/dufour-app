@@ -7,6 +7,8 @@ import io
 from pathlib import Path
 from services.qgis_storage_service import storage_service
 
+pytestmark = pytest.mark.integration
+
 # Test project path
 TEST_PROJECT = Path(__file__).parent.parent.parent / 'resources' / 'test_qgs' / 'SNU_TAG.qgz'
 

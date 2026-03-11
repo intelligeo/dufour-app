@@ -189,70 +189,6 @@ async def root():
     }
 
 
-@app.get("/api/status", tags=["system"])
-async def api_status():
-    """
-    # Detailed System Status
-    
-    Comprehensive health check with infrastructure details.
-    
-    ### Checks:
-    - Projects directory existence and contents
-    - QGIS Server connectivity
-    - PostgreSQL/PostGIS database connection
-    
-    ### Returns:
-    - `api`: API status (online/offline)
-    - `version`: API version
-    - `projects_dir`: Filesystem path to projects
-    - `project_count`: Number of .qgs/.qgz files
-    - `qgis_server`: QGIS Server URL and status
-    - `database`: PostgreSQL connection details
-    
-    ### Use Cases:
-    - Monitoring and alerting
-    - Troubleshooting deployment issues
-    - Verifying environment configuration
-    """
-    import os
-    from pathlib import Path
-    
-    projects_dir = Path(os.getenv('PROJECTS_DIR', '/data/projects'))
-    qgis_server_url = os.getenv('QGIS_SERVER_URL', 'http://qgis-server:8080')
-    
-    # Check projects directory
-    projects_exist = projects_dir.exists()
-    if projects_exist:
-        qgs_files = list(projects_dir.glob('*.qgs'))
-        qgz_files = list(projects_dir.glob('*.qgz'))
-        project_count = len(qgs_files) + len(qgz_files)
-    else:
-        project_count = 0
-        qgs_files = []
-        qgz_files = []
-    
-    # Check QGIS Server
-    qgis_online = await project_service.check_qgis_server()
-    
-    return {
-        "api": "online",
-        "version": "1.0.0",
-        "projects_dir": str(projects_dir),
-        "projects_dir_exists": projects_exist,
-        "project_count": project_count,
-        "qgs_files": [f.name for f in qgs_files],
-        "qgz_files": [f.name for f in qgz_files],
-        "qgis_server": {
-            "url": qgis_server_url,
-            "online": qgis_online
-        },
-        "database": {
-            "host": os.getenv('POSTGIS_HOST'),
-            "db": os.getenv('POSTGIS_DB')
-        }
-    }
-
-
 @app.get("/api/projects", response_model=List[ProjectResponse], tags=["projects"])
 async def list_projects():
     """
@@ -1372,32 +1308,7 @@ async def compose_print_with_symbols(request: dict):
         )
 
 
-# ==================== QGIS PROJECT STORAGE ENDPOINTS ====================
-
-@app.get("/api/projects", tags=["projects"])
-async def list_qgis_projects():
-    """
-    # List Stored Projects (Alternative Endpoint)
-    
-    Alternative endpoint for listing projects (same as /api/projects).
-    
-    ### Note:
-    This endpoint is equivalent to `GET /api/projects` but includes count metadata.
-    
-    ### Returns:
-    ```json
-    {
-      "projects": [...],
-      "count": 42
-    }
-    ```
-    """
-    try:
-        projects = storage_service.list_projects()
-        return {"projects": projects, "count": len(projects)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+# ==================== WMS PROXY ENDPOINTS ====================
 
 @app.get("/api/projects/{project_name}/wms", tags=["wms"])
 async def wms_proxy(project_name: str, request: Request):

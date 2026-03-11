@@ -9,6 +9,8 @@ from sqlalchemy import create_engine, text
 from services.layer_extractor import LayerExtractor, MigrationResult
 from services.qgz_parser import LayerInfo
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def in_memory_db():
