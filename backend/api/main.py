@@ -58,6 +58,13 @@ Content management system for QGIS projects and PostGIS data in Dufour-app.
 - Layer tree and capabilities export
 - Frontend compatibility layer
 
+### 🎖️ Military Symbols (APP-6D / MIL-STD-2525C)
+- Single and batch symbol rendering (SVG, PNG) via embedded milsymbol server
+- SIDC validation and format detection
+- Full modifier support (designation, direction, speed, HQ, etc.)
+- Server-side LRU cache with 24h browser caching
+- Print composition with symbol overlays on QGIS base maps
+
 ## Architecture
 
 ```
