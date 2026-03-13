@@ -1,7 +1,7 @@
 {
   "name": "dufour-app-qwc2",
   "version": "1.0.0",
-  "description": "Dufour-app QWC2 Web GIS Client for QGIS Project Management",
+  "description": "Dufour.app QWC2 Web GIS Client for QGIS Project Management",
   "scripts": {
     "makeicons": "node node_modules/qwc2/scripts/makeIconkit.js",
     "start": "npm run makeicons && webpack serve --mode development --env ANALYZE=0",

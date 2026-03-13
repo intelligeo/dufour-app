@@ -24,6 +24,7 @@
   "allowAddingOtherThemes": true,
   "allowFractionalZoom": false,
   "localeAwareNumbers": false,
+  "defaultColorScheme": "default",
   "identifyTool": "Identify",
   "wmsDpi": 96,
   "wmsHidpi": true,
@@ -247,7 +248,14 @@
         "name": "ScratchDrawing"
       },
       {
-        "name": "Settings"
+        "name": "Settings",
+        "cfg": {
+          "colorSchemes": [
+            {"title": "Default", "value": "default"},
+            {"title": "Dark", "value": "dark"},
+            {"title": "High Contrast", "value": "highcontrast"}
+          ]
+        }
       },
       {
         "name": "MapExport"
@@ -290,7 +298,10 @@
         "name": "MapLegend"
       },
       {
-        "name": "Portal"
+        "name": "Portal",
+        "cfg": {
+          "logo": "logo.svg"
+        }
       },
       {
         "name": "NewsPopup"
@@ -424,7 +435,14 @@
         "name": "StartupMarker"
       },
       {
-        "name": "Settings"
+        "name": "Settings",
+        "cfg": {
+          "colorSchemes": [
+            {"title": "Default", "value": "default"},
+            {"title": "Dark", "value": "dark"},
+            {"title": "High Contrast", "value": "highcontrast"}
+          ]
+        }
       },
       {
         "name": "Bookmark"
