@@ -252,7 +252,9 @@ async def list_projects():
     ```
     """
     try:
-        projects = await project_service.list_projects()
+        # Read from PostgreSQL database (not filesystem)
+        db_projects = storage_service.list_projects()
+        projects = [ProjectResponse(**p) for p in db_projects]
         return projects
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -280,12 +282,14 @@ async def get_project(project_name: str):
     - `500`: Database or server error
     """
     try:
-        project = await project_service.get_project(project_name)
+        # Search in database projects
+        db_projects = storage_service.list_projects()
+        project_data = next((p for p in db_projects if p['name'] == project_name), None)
         
-        if not project:
+        if not project_data:
             raise HTTPException(status_code=404, detail="Project not found")
         
-        return project
+        return ProjectResponse(**project_data)
     except HTTPException:
         raise
     except Exception as e:
