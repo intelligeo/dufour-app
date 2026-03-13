@@ -88,13 +88,13 @@ Currently public API. Future versions will implement JWT authentication.
 
 ## Support
 
-- Documentation: https://github.com/mlanini/dufour-app
-- Issues: https://github.com/mlanini/dufour-app/issues
+- Documentation: https://github.com/intelligeo/dufour-app
+- Issues: https://github.com/intelligeo/dufour-app/issues
 """,
     version="1.0.0",
     contact={
         "name": "Michael Lanini",
-        "url": "https://github.com/mlanini/dufour-app",
+        "url": "https://github.com/intelligeo/dufour-app",
         "email": "mlanini@proton.me"
     },
     license_info={

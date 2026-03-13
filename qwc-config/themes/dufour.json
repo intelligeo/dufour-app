@@ -2,7 +2,7 @@
   "title": "Dufour Default Project",
   "name": "dufour",
   "url": "http://qgis-server:80/cgi-bin/qgis_mapserv.fcgi?MAP=/data/projects/dufour.qgs",
-  "attribution": "Dufour-app",
+  "attribution": "Dufour.app",
   "abstract": "Default project for Dufour application",
   "keywords": ["military", "tactical", "swiss"],
   "mapCrs": "EPSG:3857",
@@ -17,7 +17,7 @@
   "backgroundLayers": [
     {
       "name": "swisstopo",
-      "title": "SwissTopo National Map",
+      "title": "swisstopo National Map",
       "type": "wmts",
       "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg",
       "tileMatrixSet": "3857",
@@ -38,7 +38,7 @@
   "searchProviders": ["coordinates"],
   "editConfig": {},
   "watermark": {
-    "text": "Dufour-app - Military Tactical GIS",
+    "text": "Dufour.app - Web GIS",
     "position": "bottomright"
   }
 }

@@ -122,7 +122,7 @@
             {"key": "Print", "icon": "print"},
             {"key": "MapExport", "icon": "rasterexport"},
             {"key": "Help", "icon": "info"},
-            {"key": "ExternalLink", "icon": "link", "url": "https://github.com/mlanini/dufour-app"}
+            {"key": "ExternalLink", "icon": "link", "url": "https://github.com/intelligeo/dufour-app"}
           ],
           "toolbarItems": [
             {"key": "Measure", "mode": "LineString", "icon": "measure_line"},
