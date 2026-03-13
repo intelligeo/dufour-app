@@ -32,11 +32,11 @@
     --button-bg-color-active: #2c3e50;
     --button-bg-color-active-hover: #34495e;
     --button-bg-color-disabled: white;
-    --button-text-color: #2c3e50;
+    --button-text-color: #cdcdcd;
     --button-text-color-hover: #2c3e50;
     --button-text-color-active: white;
     --button-text-color-active-hover: white;
-    --button-text-color-disabled: #999;
+    --button-text-color-disabled: #548abc;
     /* List */
     --list-bg-color: white;
     --list-section-bg-color: #2c3e50;

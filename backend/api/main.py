@@ -1509,7 +1509,7 @@ async def wms_proxy(project_name: str, request: Request):
             temp_path.write_bytes(qgz_bytes)
         
         # 3. Forward to QGIS Server with MAP parameter
-        qgis_server_url = os.getenv('QGIS_SERVER_URL', 'http://localhost:8080/cgi-bin/qgis_mapserv.fcgi')
+        qgis_server_url = os.getenv('QGIS_SERVER_URL', 'http://localhost:8080')
         
         # Build query string with MAP parameter
         query_params = dict(request.query_params)

@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y \
         libpq-dev \
         gcc \
         spawn-fcgi \
+        nginx \
         xvfb \
         # Node.js for milsymbol-server
         nodejs \
@@ -68,7 +69,10 @@ WORKDIR /app
 COPY backend/api/ .
 
 # Create directories
-RUN mkdir -p /tmp/qgis_projects /var/log/qgis
+RUN mkdir -p /tmp/qgis_projects /var/log/qgis /var/log/nginx
+
+# Copy nginx config for QGIS Server FastCGI proxy
+COPY backend/api/qgis-nginx.conf /etc/nginx/qgis-nginx.conf
 
 # Set QGIS Server environment variables
 ENV QGIS_SERVER_LOG_LEVEL=0 \
@@ -94,11 +98,15 @@ set -e\n\
 \n\
 echo "=== Starting Dufour Backend ==="\n\
 \n\
-# Start QGIS Server via spawn-fcgi\n\
+# Start QGIS Server via spawn-fcgi on FastCGI port 9993\n\
 Xvfb :99 -screen 0 1024x768x24 -nolisten tcp &\n\
 export DISPLAY=:99\n\
-spawn-fcgi -n -p 8080 -f /usr/lib/cgi-bin/qgis_mapserv.fcgi &\n\
-echo "✅ QGIS Server started on port 8080"\n\
+spawn-fcgi -n -p 9993 -f /usr/lib/cgi-bin/qgis_mapserv.fcgi &\n\
+echo "✅ QGIS Server (FastCGI) started on port 9993"\n\
+\n\
+# Start nginx as HTTP-to-FastCGI bridge on port 8080\n\
+nginx -c /etc/nginx/qgis-nginx.conf\n\
+echo "✅ nginx (QGIS proxy) started on port 8080"\n\
 \n\
 # Start Milsymbol Server (sidecar) with log capture\n\
 cd /milsymbol && node index.js > /var/log/milsymbol.log 2>&1 &\n\
