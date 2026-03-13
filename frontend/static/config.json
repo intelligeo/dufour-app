@@ -24,7 +24,7 @@
   "allowAddingOtherThemes": true,
   "allowFractionalZoom": false,
   "localeAwareNumbers": false,
-  "defaultColorScheme": "default",
+  "defaultColorScheme": "highcontrast",
   "identifyTool": "Identify",
   "wmsDpi": 96,
   "wmsHidpi": true,
