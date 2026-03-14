@@ -29,7 +29,7 @@
           {"name": "osm"}
         ],
         "sublayers": [],
-        "thumbnail": "img/mapthumbs/default.jpg",
+  "thumbnail": "assets/img/mapthumbs/default.jpg",
         "additionalMouseCrs": ["EPSG:2056", "EPSG:4326", "EPSG:21781", "MGRS"]
       }
     ],
@@ -56,7 +56,7 @@
         "type": "xyz",
         "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         "projection": "EPSG:3857",
-        "thumbnail": "arcgis_imagery.jpg",
+  "thumbnail": "assets/arcgis_imagery.jpg",
         "attribution": "Esri, DigitalGlobe, GeoEye, Earthstar Geographics"
       },
       {
@@ -65,12 +65,12 @@
         "type": "xyz",
         "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
         "projection": "EPSG:3857",
-        "thumbnail": "arcgis_topo.jpg",
+  "thumbnail": "assets/arcgis_topo.jpg",
         "attribution": "Esri, HERE, Garmin, OpenStreetMap contributors"
       },
       {
         "name": "swisstopo_national",
-        "title": "swisstopo Topographic Maps",
+        "title": "swisstopo Maps",
         "type": "wmts",
         "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg",
         "tileMatrixPrefix": "",
@@ -80,7 +80,7 @@
         "projection": "EPSG:3857",
         "resolutions": [4000, 3750, 3500, 3250, 3000, 2750, 2500, 2250, 2000, 1750, 1500, 1250, 1000, 750, 650, 500, 250, 100, 50, 20, 10, 5, 2.5, 2, 1.5, 1, 0.5],
         "tileSize": [256, 256],
-        "thumbnail": "swisstopo.jpg",
+        "thumbnail": "https://map.geo.admin.ch/v1.61.3/assets/ch.swisstopo.pixelkarte-farbe-Bq907_qJ.png",
         "attribution": "swisstopo"
       },
       {
@@ -88,7 +88,7 @@
         "title": "OpenStreetMap",
         "type": "osm",
         "source": "osm",
-        "thumbnail": "osm.jpg",
+  "thumbnail": "assets/osm.jpg",
         "attribution": "OpenStreetMap contributors"
       }
     ]

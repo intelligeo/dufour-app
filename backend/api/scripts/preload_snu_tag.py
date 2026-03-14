@@ -38,8 +38,8 @@ def preload_snu_tag():
         result = storage_service.store_qgz(
             project_name='snu_tag',  # lowercase as per DB constraint
             qgz_bytes=qgz_bytes,
-            title='Switzerland-North Ukraine Tactical Analysis Grid',
-            description='Test project for tactical operations mapping with SwissTopo base layers'
+            title='SNU',
+            description='Test project on non-official trails.'
         )
         
         logger.info(f"✅ Successfully stored project: {result}")
