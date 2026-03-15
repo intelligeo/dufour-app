@@ -303,7 +303,7 @@ async def upload_and_migrate_project(
     description: Optional[str] = Form(None, description="Project description", example="Contains Swiss municipalities and transportation layers"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
-    data_files: Optional[List[UploadFile]] = File(None, description="Companion data files (.gpkg, .geojson, .shp, .dbf, .shx, .prj, .cpg, .fgb, .csv)")
+    data_files: List[UploadFile] = File(default=[], description="Companion data files (.gpkg, .geojson, .shp, .dbf, .shx, .prj, .cpg, .fgb, .csv)")
 ):
     """
     # Upload and Migrate QGIS Project
@@ -396,6 +396,12 @@ async def upload_and_migrate_project(
     }
     
     try:
+        # Filter out invalid data_files entries (Swagger UI may send empty strings)
+        valid_data_files = [
+            df for df in data_files
+            if isinstance(df, UploadFile) and df.filename and df.size and df.size > 0
+        ]
+        
         # Validate file extension
         if not file.filename.endswith('.qgz'):
             raise HTTPException(
@@ -411,7 +417,7 @@ async def upload_and_migrate_project(
             )
         
         # Validate companion file extensions
-        for df in (data_files or []):
+        for df in valid_data_files:
             if df.filename:
                 ext = Path(df.filename).suffix.lower()
                 if ext not in ALLOWED_DATA_EXTENSIONS:
@@ -439,26 +445,25 @@ async def upload_and_migrate_project(
             # Save companion data files to a temp directory
             # They will be copied into the .qgz extraction dir by the migrator
             companion_paths: List[Path] = []
-            if data_files:
+            if valid_data_files:
                 companion_dir = Path(tempfile.mkdtemp(prefix='qgz_companion_'))
                 total_companion_size = 0
-                for df in data_files:
-                    if df.filename and df.size and df.size > 0:
-                        df_content = await df.read()
-                        total_companion_size += len(df_content)
-                        
-                        # 200MB total limit for companion files
-                        if total_companion_size > 200 * 1024 * 1024:
-                            raise HTTPException(
-                                status_code=400,
-                                detail="Total companion data files size exceeds 200MB limit"
-                            )
-                        
-                        companion_path = companion_dir / df.filename
-                        companion_path.parent.mkdir(parents=True, exist_ok=True)
-                        companion_path.write_bytes(df_content)
-                        companion_paths.append(companion_path)
-                        logger.info(f"Saved companion file: {df.filename} ({len(df_content)} bytes)")
+                for df in valid_data_files:
+                    df_content = await df.read()
+                    total_companion_size += len(df_content)
+                    
+                    # 200MB total limit for companion files
+                    if total_companion_size > 200 * 1024 * 1024:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Total companion data files size exceeds 200MB limit"
+                        )
+                    
+                    companion_path = companion_dir / df.filename
+                    companion_path.parent.mkdir(parents=True, exist_ok=True)
+                    companion_path.write_bytes(df_content)
+                    companion_paths.append(companion_path)
+                    logger.info(f"Saved companion file: {df.filename} ({len(df_content)} bytes)")
             
             # Pre-check: identify missing companion data files BEFORE migration
             _, missing_files = project_migrator.check_missing_files(
