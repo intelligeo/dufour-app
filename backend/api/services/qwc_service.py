@@ -306,16 +306,9 @@ class QWCService:
             {
                 "name": "swisstopo_national",
                 "title": "swisstopo Maps",
-                "type": "wmts",
-                "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg",
-                "tileMatrixPrefix": "",
-                "tileMatrixSet": "3857",
-                "originX": -20037508.3428,
-                "originY": 20037508.3428,
+                "type": "xyz",
+                "url": "/wmts/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
                 "projection": "EPSG:3857",
-                "resolutions": [4000, 3750, 3500, 3250, 3000, 2750, 2500, 2250, 2000,
-                                1750, 1500, 1250, 1000, 750, 650, 500, 250, 100, 50,
-                                20, 10, 5, 2.5, 2, 1.5, 1, 0.5],
                 "tileSize": [256, 256],
                 "thumbnail": "swisstopo.jpg",
                 "attribution": "swisstopo"
