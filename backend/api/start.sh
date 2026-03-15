@@ -32,7 +32,7 @@ echo "✅ QGIS Server (FastCGI) started (PID=$QGIS_PID) on port 9993"
 # Base image nginx location /ows/ rewrites to QGIS FastCGI
 QGIS_READY=0
 for i in $(seq 1 15); do
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:80/ows/?SERVICE=WMS&REQUEST=GetCapabilities" 2>/dev/null || echo "000")
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:80/ows/?SERVICE=WMS&REQUEST=GetCapabilities" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" != "000" ]; then
     QGIS_READY=1
     echo "✅ QGIS Server responding via nginx /ows/ (HTTP $HTTP_CODE) after ${i}s"
