@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS project_layers (
     layer_name VARCHAR(255),
     layer_type VARCHAR(50),
     geometry_type VARCHAR(50),
+    source_type VARCHAR(50) NOT NULL DEFAULT 'unknown',
     table_name VARCHAR(255),
     datasource VARCHAR(50),
     created_at TIMESTAMP DEFAULT NOW()

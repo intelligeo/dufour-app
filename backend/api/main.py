@@ -539,11 +539,11 @@ async def upload_and_migrate_project(
                         insert_layer_sql = text("""
                             INSERT INTO project_layers (
                                 id, project_id, layer_name, layer_type, 
-                                geometry_type, table_name, datasource
+                                geometry_type, source_type, table_name, datasource
                             )
                             VALUES (
                                 :id, :project_id, :layer_name, :layer_type,
-                                :geometry_type, :table_name, :datasource
+                                :geometry_type, :source_type, :table_name, :datasource
                             )
                         """)
                         
@@ -554,6 +554,7 @@ async def upload_and_migrate_project(
                                 'layer_name': layer_info.name,
                                 'layer_type': layer_info.layer_type,
                                 'geometry_type': layer_info.geometry_type,
+                                'source_type': layer_info.source_type or 'unknown',
                                 'table_name': migration_result.table_name,
                                 'datasource': 'postgis'
                             })
