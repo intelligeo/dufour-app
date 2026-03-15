@@ -144,6 +144,7 @@ app.add_middleware(
         "https://map.dufour.app",
         "https://dufour.app",
         "https://www.dufour.app",
+        "https://*.geo.admin.ch",
         "http://localhost:5173",
         "http://localhost:8081",
         "http://localhost"
@@ -1616,7 +1617,7 @@ async def wms_proxy(project_name: str, request: Request):
         # QGIS Server runs as FastCGI on port 9993, proxied by nginx on port 80
         # We use our custom nginx config with /qgis location → FastCGI
         # HARDCODED: this is an internal container detail, not user-configurable
-        qgis_server_url = 'http://127.0.0.1:80/qgis'
+        qgis_server_url = 'http://localhost:80/qgis'
         
         # Build query string with MAP parameter
         query_params = dict(request.query_params)
@@ -1681,7 +1682,7 @@ async def wms_proxy(project_name: str, request: Request):
     except HTTPException:
         raise
     except httpx.ConnectError as e:
-        logger.error(f"WMS proxy: cannot reach QGIS Server at http://127.0.0.1:80/qgis: {e}")
+        logger.error(f"WMS proxy: cannot reach QGIS Server at http://localhost:80/qgis: {e}")
         raise HTTPException(
             status_code=502,
             detail=f"QGIS Server unreachable. The map rendering service is not available. ({e})"

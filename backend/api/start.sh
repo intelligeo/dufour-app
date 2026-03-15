@@ -43,10 +43,10 @@ echo "✅ QGIS Server (FastCGI) started (PID=$QGIS_PID) on port 9993"
 QGIS_READY=0
 for i in $(seq 1 15); do
   # First check nginx health endpoint
-  HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:80/health" 2>/dev/null || echo "000")
+  HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:80/health" 2>/dev/null || echo "000")
   if [ "$HEALTH_CODE" = "200" ]; then
     # nginx is up, now check QGIS via /qgis path
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:80/qgis?SERVICE=WMS&REQUEST=GetCapabilities" 2>/dev/null || echo "000")
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:80/qgis?SERVICE=WMS&REQUEST=GetCapabilities" 2>/dev/null || echo "000")
     if [ "$HTTP_CODE" != "000" ]; then
       QGIS_READY=1
       echo "✅ QGIS Server responding via nginx /qgis (HTTP $HTTP_CODE) after ${i}s"
@@ -57,7 +57,7 @@ for i in $(seq 1 15); do
 done
 if [ "$QGIS_READY" -eq 0 ]; then
   echo "⚠️  WARNING: QGIS Server not responding on port 80 after 15s"
-  echo "  nginx health: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:80/health 2>/dev/null || echo FAIL)"
+  echo "  nginx health: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:80/health 2>/dev/null || echo FAIL)"
   echo "  nginx pid: $(pidof nginx 2>/dev/null || echo NONE)"
   echo "  spawn-fcgi alive: $(kill -0 $QGIS_PID 2>/dev/null && echo yes || echo no)"
   echo "  netstat port 80: $(ss -tlnp | grep ':80 ' 2>/dev/null || echo 'not listening')"

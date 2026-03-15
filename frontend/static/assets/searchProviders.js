@@ -1,5 +1,5 @@
 /**
- * Dufour-app – Search Providers
+ * Dufour.app – Search Providers
  *
  * Provides search using the SwissTopo GeoAdmin REST API.
  * Returns results as GeoJSON features in EPSG:4326.

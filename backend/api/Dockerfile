@@ -66,7 +66,7 @@ COPY backend/api/qgis-nginx.conf /etc/nginx/nginx.conf
 
 # QGIS Server via our custom nginx on port 80
 # /qgis path forwards directly to QGIS Server FastCGI (spawn-fcgi on port 9993)
-ENV QGIS_SERVER_URL=http://127.0.0.1:80/qgis
+ENV QGIS_SERVER_URL=http://localhost:80/qgis
 
 # Copy startup script
 COPY backend/api/start.sh /start.sh
