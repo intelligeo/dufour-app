@@ -23,8 +23,10 @@ VALUES ('dev_user', 'dev@intelligeo.net')
 ON CONFLICT (username) DO NOTHING;
 
 -- ============================================================
--- Projects table
--- Stores QGIS projects (.qgz) with metadata
+-- Projects table (central catalog)
+-- One row per uploaded project.
+-- schema_name points to the per-project schema (prj_<slug>)
+-- where the actual feature tables live.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS projects (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -40,13 +42,21 @@ CREATE TABLE IF NOT EXISTS projects (
     extent_miny DOUBLE PRECISION,
     extent_maxx DOUBLE PRECISION,
     extent_maxy DOUBLE PRECISION,
+    -- per-project schema where feature tables are stored (prj_<slug>)
+    schema_name VARCHAR(63),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Migrate existing rows: set schema_name if missing
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS schema_name VARCHAR(63);
+
 -- ============================================================
--- Project layers table
--- Stores metadata for each layer within a project
+-- Project layers table (central catalog)
+-- One row per layer in a project.
+-- table_name is the unqualified table name inside schema_name.
+-- When table_name IS NULL the layer has no feature table
+-- (raster, WMS, missing companion file, etc.).
 -- ============================================================
 CREATE TABLE IF NOT EXISTS project_layers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -55,10 +65,19 @@ CREATE TABLE IF NOT EXISTS project_layers (
     layer_type VARCHAR(50),
     geometry_type VARCHAR(50),
     source_type VARCHAR(50) NOT NULL DEFAULT 'unknown',
+    crs VARCHAR(50),
+    -- unqualified feature table name inside the project schema (may be NULL)
     table_name VARCHAR(255),
-    datasource VARCHAR(50),
+    -- original datasource string from the .qgz XML
+    datasource TEXT,
+    features_count INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Migrate existing rows: add new columns if missing
+ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS crs VARCHAR(50);
+ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS features_count INTEGER DEFAULT 0;
+ALTER TABLE project_layers ALTER COLUMN datasource TYPE TEXT;
 
 -- ============================================================
 -- Indexes

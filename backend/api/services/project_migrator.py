@@ -1,374 +1,440 @@
 """
 Project Migration Service
-Orchestrates .qgz parsing, layer extraction, and database storage
+Parses .qgz files and stores them in the cloud database with a per-project
+PostgreSQL schema containing feature tables for each vector layer.
+
+Design:
+  - A schema named  prj_<slug>  is created for every uploaded project.
+  - Inside the schema:
+      • project        — project metadata (no binary blob, that stays in
+                          public.projects.qgz_data)
+      • project_layers — one row per layer (metadata)
+      • lyr_<name>     — one PostGIS feature table per vector layer that
+                          has a matching companion file
+  - public.projects receives a new row (or is updated) with schema_name
+    pointing to the per-project schema.
+  - SRID is taken from the fiona source; no reprojection is applied.
+  - If any feature table fails, the error is recorded in the LayerRecord
+    but the rest of the migration continues (partial success allowed).
 """
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import logging
-import shutil
-from sqlalchemy.engine import Engine
+import re
+from dataclasses import dataclass, field
 
-from services.qgz_parser import QGZParser, LayerInfo, ProjectInfo
+import fiona
+from sqlalchemy import text
+
+from services.qgz_parser import QGZParser, ProjectInfo
 from services.layer_extractor import LayerExtractor, MigrationResult
 from database.connection import db
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class LayerRecord:
+    """
+    Metadata record for one layer parsed from a .qgz.
+    Maps directly to the per-schema project_layers table columns.
+    """
+    layer_name: str
+    layer_type: str       # 'vector', 'raster', 'wms', 'plugin', etc.
+    geometry_type: str    # 'Point', 'Polygon', '', etc.
+    source_type: str      # 'gpkg', 'postgis', 'wms', 'geojson', etc.
+    datasource: str       # Original datasource string from the .qgz XML
+    crs: str              # e.g. 'EPSG:2056'
+    success: bool = True
+    error: Optional[str] = None
+    table_name: str = ''        # populated after feature-table extraction
+    features_count: int = 0
+
+
+# Alias so existing callers that import MigrationResult still work
+MigrationResult = LayerRecord  # type: ignore[misc]
+
+
+def _slugify(name: str) -> str:
+    """Return a PostgreSQL-safe lowercase identifier from an arbitrary string."""
+    slug = name.lower()
+    slug = re.sub(r'[^a-z0-9_]', '_', slug)
+    slug = re.sub(r'_+', '_', slug).strip('_')
+    return slug or 'project'
+
+
+def _schema_name(project_name: str) -> str:
+    """Return the per-project schema name: prj_<slug>."""
+    return f"prj_{_slugify(project_name)}"
+
+
 class ProjectMigrator:
-    """Migrate QGIS projects to cloud storage with PostGIS layers"""
-    
-    def __init__(self, engine: Optional[Engine] = None):
-        """
-        Initialize project migrator
-        
-        Args:
-            engine: SQLAlchemy engine (defaults to db.get_engine())
-        """
+    """
+    Parse QGIS .qgz projects and store them in the cloud database.
+
+    Workflow:
+      1. Extract + parse the .qgz with QGZParser → ProjectInfo + LayerInfo list
+      2. Build LayerRecord list from parsed layer metadata
+      3. Enrich from companion files (fiona): fill features_count + geometry_type
+      4. Create per-project schema  prj_<slug>  (idempotent)
+      5. Create project / project_layers tables inside the schema
+      6. For each vector layer with a matching companion file, call
+         LayerExtractor.extract_layer(..., schema=project_schema) to create
+         a lyr_<name> PostGIS table with the original SRID
+      7. Populate project_layers table inside the schema
+      8. Return (ProjectInfo, list[LayerRecord], qgz_bytes, schema_name)
+
+    The caller (main.py) stores qgz_bytes in public.projects and passes
+    schema_name so it can be written to public.projects.schema_name.
+    """
+
+    def __init__(self, engine=None):
         self.engine = engine or db.get_engine()
-    
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def migrate_project(
         self,
         qgz_path: Path,
         project_name: str,
         target_crs: str = 'EPSG:2056',
-        companion_files: Optional[List[Path]] = None
-    ) -> Tuple[ProjectInfo, List[MigrationResult], Optional[bytes]]:
+        companion_files: Optional[List[Path]] = None,
+    ) -> Tuple[ProjectInfo, List[LayerRecord], bytes, str]:
         """
-        Migrate QGIS project to cloud storage
-        
-        1. Parse .qgz file
-        2. Copy companion data files alongside extracted .qgz
-        3. Extract local layers to PostGIS
-        4. Update .qgz datasources to point to PostGIS
-        5. Return modified .qgz as bytes
-        
+        Parse a .qgz, create per-project schema, extract feature tables.
+
         Args:
-            qgz_path: Path to .qgz file
-            project_name: Project identifier (for table naming)
-            target_crs: Target CRS for PostGIS layers
-            companion_files: Optional list of data files (.gpkg, .geojson, etc.)
-                             to copy into the extraction directory so that
-                             relative-path datasources can be resolved.
-            
+            qgz_path:        Path to the uploaded .qgz file.
+            project_name:    Project slug (lowercase, used for schema name).
+            target_crs:      Kept for signature compatibility; SRID is taken
+                             from the fiona source (no reprojection applied).
+            companion_files: Optional data files (.gpkg, .geojson, …) that
+                             are referenced by layers inside the .qgz.
+
         Returns:
-            Tuple of (ProjectInfo, List[MigrationResult], modified_qgz_bytes)
+            (ProjectInfo, list[LayerRecord], qgz_bytes, schema_name)
         """
-        logger.info(f"Starting migration for project: {project_name}")
-        
-        migration_results: List[MigrationResult] = []
-        modified_qgz_bytes: Optional[bytes] = None
-        
-        try:
-            with QGZParser(qgz_path) as parser:
-                # Step 1: Extract and parse .qgz
-                parser.extract()
-                parser.parse_xml()
-                project_info = parser.get_project_info()
-                
-                logger.info(
-                    f"Parsed project: {project_info.title}, "
-                    f"{len(project_info.layers)} layers"
-                )
-                
-                # Step 1b: Copy companion data files into extraction directory
-                if companion_files:
-                    for companion_path in companion_files:
-                        if companion_path.exists():
-                            dest = parser.temp_dir / companion_path.name
-                            shutil.copy2(companion_path, dest)
-                            logger.info(
-                                f"Copied companion file: {companion_path.name} "
-                                f"-> {dest}"
-                            )
-                
-                # Step 2: Migrate local layers to PostGIS
-                extractor = LayerExtractor(project_name, self.engine)
-                
-                for layer_info in project_info.layers:
-                    # Skip non-local layers (already in PostGIS, WMS, etc.)
-                    if not layer_info.is_local:
-                        logger.info(
-                            f"Skipping remote layer: {layer_info.name} "
-                            f"(type: {layer_info.source_type})"
-                        )
-                        continue
-                    
-                    # Skip unsupported formats
-                    if layer_info.source_type not in LayerExtractor.SUPPORTED_FORMATS:
-                        logger.warning(
-                            f"Skipping unsupported format: {layer_info.name} "
-                            f"({layer_info.source_type})"
-                        )
-                        migration_results.append(MigrationResult(
-                            layer_name=layer_info.name,
-                            table_name='',
-                            features_count=0,
-                            geometry_type='',
-                            source_crs='',
-                            target_crs=target_crs,
-                            success=False,
-                            error=f"Unsupported format: {layer_info.source_type}"
-                        ))
-                        continue
-                    
-                    # Find source file in extracted .qgz
-                    source_path = self._find_layer_source(
-                        parser.temp_dir,
-                        layer_info.datasource
-                    )
-                    
-                    if not source_path:
-                        # Extract filename for clearer error message
-                        ds = layer_info.datasource.split('|')[0].lstrip('./')
-                        logger.warning(
-                            f"Source file not found for layer: {layer_info.name} "
-                            f"(datasource: {ds}) — layer skipped, not migrated to PostGIS"
-                        )
-                        migration_results.append(MigrationResult(
-                            layer_name=layer_info.name,
-                            table_name='',
-                            features_count=0,
-                            geometry_type='',
-                            source_crs='',
-                            target_crs=target_crs,
-                            success=False,
-                            error=f"Source file not found: {ds}. "
-                                  f"Upload it via the data_files parameter."
-                        ))
-                        continue
-                    
-                    # Extract layer to PostGIS
-                    logger.info(f"Migrating layer: {layer_info.name}")
-                    result = extractor.extract_layer(
-                        layer_info=layer_info,
-                        source_path=source_path,
-                        target_crs=target_crs
-                    )
-                    migration_results.append(result)
-                    
-                    # Step 3: Update datasource in .qgz XML
-                    if result.success:
-                        new_datasource = extractor.generate_postgis_datasource(
-                            table_name=result.table_name,
-                            geometry_type=result.geometry_type,
-                            srid=extractor._extract_epsg_code(target_crs)
-                        )
-                        
-                        parser.update_layer_datasource(
-                            layer_id=layer_info.id,
-                            new_datasource=new_datasource
-                        )
-                        
-                        logger.info(
-                            f"Updated datasource for {layer_info.name} "
-                            f"-> {result.table_name}"
-                        )
-                
-                # Step 4: Save modified .qgz
-                if any(r.success for r in migration_results):
-                    # Save modified .qgs to temp file
-                    modified_qgs = parser.temp_dir / 'modified.qgs'
-                    parser.save_modified_qgs(modified_qgs)
-                    
-                    # Create new .qgz with modified .qgs
-                    modified_qgz_path = parser.temp_dir / 'modified.qgz'
-                    self._repackage_qgz(
-                        source_dir=parser.temp_dir,
-                        output_path=modified_qgz_path,
-                        qgs_file=modified_qgs
-                    )
-                    
-                    # Read modified .qgz as bytes
-                    with open(modified_qgz_path, 'rb') as f:
-                        modified_qgz_bytes = f.read()
-                    
-                    logger.info(f"Created modified .qgz: {len(modified_qgz_bytes)} bytes")
-                else:
-                    # No migrations, use original .qgz
-                    with open(qgz_path, 'rb') as f:
-                        modified_qgz_bytes = f.read()
-            
-            # Log summary
-            successful = sum(1 for r in migration_results if r.success)
-            failed = len(migration_results) - successful
-            logger.info(
-                f"Migration complete: {successful} success, {failed} failed"
-            )
-            
-            return project_info, migration_results, modified_qgz_bytes
-            
-        except Exception as e:
-            logger.error(f"Migration failed for {project_name}: {e}")
-            raise
-    
-    def _find_layer_source(
-        self,
-        temp_dir: Path,
-        datasource: str
-    ) -> Optional[Path]:
-        """
-        Find source file for layer in extracted .qgz directory
-        
-        Args:
-            temp_dir: Extracted .qgz directory
-            datasource: Layer datasource string
-            
-        Returns:
-            Path to source file or None
-        """
-        # Common patterns in QGIS datasources:
-        # GeoPackage: "./data.gpkg|layername=mylayer"
-        # Shapefile: "./data/mylayer.shp"
-        # GeoJSON: "./data/mylayer.geojson"
-        # FlatGeobuf: "./data/mylayer.fgb"
-        
-        # Extract file path from datasource
-        if '|' in datasource:
-            # GeoPackage format with layer name
-            file_part = datasource.split('|')[0]
-        else:
-            file_part = datasource
-        
-        # Remove leading './'
-        file_part = file_part.lstrip('./')
-        
-        # Try to find file
-        candidate = temp_dir / file_part
-        if candidate.exists():
-            return candidate
-        
-        # Try without subdirectories
-        candidate = temp_dir / Path(file_part).name
-        if candidate.exists():
-            return candidate
-        
-        # Try glob search
-        pattern = Path(file_part).name
-        matches = list(temp_dir.rglob(pattern))
-        if matches:
-            return matches[0]
-        
-        return None
-    
-    def check_missing_files(
-        self,
-        qgz_path: Path,
-        companion_files: Optional[List[Path]] = None
-    ) -> Tuple[ProjectInfo, List[str]]:
-        """
-        Pre-check: parse .qgz and identify missing companion data files.
-        
-        Call this BEFORE migrate_project to give the user a clear 422 error
-        listing exactly which files need to be uploaded via data_files.
-        
-        Args:
-            qgz_path: Path to .qgz file
-            companion_files: Optional companion files already provided
-            
-        Returns:
-            Tuple of (ProjectInfo, list of missing filenames)
-        """
+        logger.info(f"Migrating project: {project_name}")
+
+        # ── 1. Parse .qgz ────────────────────────────────────────────
         with QGZParser(qgz_path) as parser:
             parser.extract()
             parser.parse_xml()
             project_info = parser.get_project_info()
-            
-            # Copy companion files into extraction directory (same as migrate)
-            if companion_files:
-                for cp in companion_files:
-                    if cp.exists():
-                        dest = parser.temp_dir / cp.name
-                        shutil.copy2(cp, dest)
-                        logger.info(f"[pre-check] Copied companion: {cp.name} -> {dest} (exists={dest.exists()})")
-                    else:
-                        logger.warning(f"[pre-check] Companion file not found: {cp}")
-            
-            # Log extraction directory contents
-            if parser.temp_dir:
-                all_files = list(parser.temp_dir.rglob('*'))
-                logger.info(f"[pre-check] temp_dir contents ({len(all_files)} files): {[f.name for f in all_files if f.is_file()]}")
-            
-            # Check each local layer
-            missing: List[str] = []
-            seen_files: set = set()
-            
-            for layer in project_info.layers:
-                if not layer.is_local:
-                    continue
-                if layer.source_type not in LayerExtractor.SUPPORTED_FORMATS:
-                    continue
-                
-                # Extract the filename from datasource
-                ds = layer.datasource.split('|')[0].lstrip('./')
-                filename = Path(ds).name
-                
-                if filename in seen_files:
-                    continue  # Already checked this file
-                seen_files.add(filename)
-                
-                source = self._find_layer_source(parser.temp_dir, layer.datasource)
-                if not source:
-                    missing.append(filename)
-            
-            return project_info, missing
 
-    def _repackage_qgz(
+        logger.info(
+            f"Parsed '{project_info.title}': "
+            f"{len(project_info.layers)} layers, CRS={project_info.crs}"
+        )
+
+        # ── 2. Build initial LayerRecord list ────────────────────────
+        layer_records: List[LayerRecord] = [
+            LayerRecord(
+                layer_name=li.name,
+                layer_type=li.layer_type or 'unknown',
+                geometry_type=li.geometry_type or '',
+                source_type=li.source_type or 'unknown',
+                datasource=li.datasource or '',
+                crs=li.crs or project_info.crs or 'EPSG:4326',
+            )
+            for li in project_info.layers
+        ]
+
+        # ── 3. Enrich from companion files ───────────────────────────
+        companion_map: Dict[str, Path] = {}
+        if companion_files:
+            companion_map = {
+                cf.name.lower(): cf
+                for cf in companion_files
+                if cf.exists()
+            }
+            self._enrich_from_companions(layer_records, companion_map)
+
+        # ── 4. Create per-project schema ─────────────────────────────
+        proj_schema = _schema_name(project_name)
+        self._create_schema(proj_schema)
+
+        # ── 5. Create project / project_layers tables in schema ──────
+        self._create_schema_tables(proj_schema)
+
+        # ── 6. Extract feature tables for vector layers ───────────────
+        extractor = LayerExtractor(project_name=project_name, engine=self.engine)
+
+        for rec in layer_records:
+            if rec.layer_type != 'vector' or not rec.datasource:
+                continue
+
+            # Find matching companion file
+            companion_path = self._resolve_companion(rec.datasource, companion_map)
+            if companion_path is None:
+                logger.debug(
+                    f"No companion for vector layer '{rec.layer_name}' — skipping table"
+                )
+                continue
+
+            # Build a minimal LayerInfo-compatible object for the extractor
+            class _LI:
+                name = rec.layer_name
+                source_type = rec.source_type
+                layer_type = rec.layer_type
+
+            # Determine fiona open kwargs (support GPKG sub-layers)
+            fiona_layer: Optional[str] = None
+            if '|layername=' in rec.datasource:
+                fiona_layer = rec.datasource.split('|layername=')[1].split('|')[0]
+
+            # Determine SRID from fiona source (preserve original, no reprojection)
+            fiona_srid: int = self._srid_from_companion(companion_path, fiona_layer)
+
+            # Build a fiona path string (for GPKG: "file.gpkg|layername=xx")
+            if fiona_layer:
+                fiona_path_str = f"{companion_path}|layername={fiona_layer}"
+            else:
+                fiona_path_str = str(companion_path)
+
+            try:
+                # Open via fiona to get schema, then call extractor internals
+                open_kwargs: dict = {'path': str(companion_path)}
+                if fiona_layer:
+                    open_kwargs['layer'] = fiona_layer
+
+                with fiona.open(**open_kwargs) as src:
+                    table_name = extractor._generate_table_name(rec.layer_name)
+                    geom_type = src.schema.get('geometry', 'Geometry') or 'Geometry'
+                    # Normalise 3D types (e.g. '3D MultiPolygon' → 'MultiPolygon')
+                    geom_type = geom_type.replace('3D ', '').split()[-1]
+
+                    extractor._create_postgis_table(
+                        table_name=table_name,
+                        geometry_type=geom_type,
+                        srid=fiona_srid,
+                        properties=src.schema['properties'],
+                        schema=proj_schema,
+                    )
+
+                    # No transformation — SRID is kept as-is
+                    inserted = extractor._insert_features(
+                        src=src,
+                        table_name=table_name,
+                        transformer=None,
+                        schema=proj_schema,
+                        srid=fiona_srid,
+                    )
+
+                rec.table_name = table_name
+                rec.features_count = inserted
+                if not rec.geometry_type:
+                    rec.geometry_type = geom_type
+                logger.info(
+                    f"Extracted '{rec.layer_name}' → "
+                    f"{proj_schema}.{table_name} ({inserted} features, SRID={fiona_srid})"
+                )
+
+            except Exception as exc:
+                rec.success = False
+                rec.error = str(exc)
+                logger.error(
+                    f"Failed to extract feature table for '{rec.layer_name}': {exc}"
+                )
+
+        # ── 7. Populate per-schema project_layers table ───────────────
+        self._populate_schema_layers(proj_schema, layer_records)
+
+        # ── 8. Return ─────────────────────────────────────────────────
+        qgz_bytes = qgz_path.read_bytes()
+        logger.info(
+            f"Migration done for '{project_name}': schema={proj_schema}, "
+            f"{len(qgz_bytes)} bytes, {len(layer_records)} layer records"
+        )
+        return project_info, layer_records, qgz_bytes, proj_schema
+
+    # ------------------------------------------------------------------
+    # Schema / table creation helpers
+    # ------------------------------------------------------------------
+
+    def _create_schema(self, schema: str) -> None:
+        """Create the per-project PostgreSQL schema (idempotent)."""
+        with self.engine.connect() as conn:
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+            conn.commit()
+        logger.info(f"Schema ensured: {schema}")
+
+    def _create_schema_tables(self, schema: str) -> None:
+        """Create project + project_layers tables inside the per-project schema."""
+        ddl = f"""
+            CREATE TABLE IF NOT EXISTS "{schema}".project (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name        VARCHAR(255) NOT NULL,
+                title       VARCHAR(500),
+                description TEXT,
+                crs         VARCHAR(50),
+                extent_minx DOUBLE PRECISION,
+                extent_miny DOUBLE PRECISION,
+                extent_maxx DOUBLE PRECISION,
+                extent_maxy DOUBLE PRECISION,
+                created_at  TIMESTAMP DEFAULT NOW(),
+                updated_at  TIMESTAMP DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS "{schema}".project_layers (
+                id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                layer_name     VARCHAR(255) NOT NULL,
+                layer_type     VARCHAR(50),
+                geometry_type  VARCHAR(100),
+                source_type    VARCHAR(50),
+                crs            VARCHAR(50),
+                table_name     VARCHAR(63),
+                datasource     TEXT,
+                features_count INTEGER DEFAULT 0,
+                success        BOOLEAN DEFAULT TRUE,
+                error          TEXT
+            );
+        """
+        with self.engine.connect() as conn:
+            for stmt in ddl.strip().split(';'):
+                stmt = stmt.strip()
+                if stmt:
+                    conn.execute(text(stmt))
+            conn.commit()
+        logger.info(f"Tables ensured in schema: {schema}")
+
+    def _populate_schema_layers(
         self,
-        source_dir: Path,
-        output_path: Path,
-        qgs_file: Path
-    ):
+        schema: str,
+        layer_records: List[LayerRecord],
+    ) -> None:
+        """Insert/replace layer metadata rows in {schema}.project_layers."""
+        import uuid as _uuid
+        with self.engine.connect() as conn:
+            conn.execute(text(f'TRUNCATE "{schema}".project_layers'))
+            for rec in layer_records:
+                conn.execute(text(f"""
+                    INSERT INTO "{schema}".project_layers (
+                        id, layer_name, layer_type, geometry_type,
+                        source_type, crs, table_name, datasource,
+                        features_count, success, error
+                    ) VALUES (
+                        :id, :layer_name, :layer_type, :geometry_type,
+                        :source_type, :crs, :table_name, :datasource,
+                        :features_count, :success, :error
+                    )
+                """), {
+                    'id': str(_uuid.uuid4()),
+                    'layer_name': rec.layer_name,
+                    'layer_type': rec.layer_type,
+                    'geometry_type': rec.geometry_type,
+                    'source_type': rec.source_type,
+                    'crs': rec.crs,
+                    'table_name': rec.table_name or None,
+                    'datasource': rec.datasource,
+                    'features_count': rec.features_count,
+                    'success': rec.success,
+                    'error': rec.error,
+                })
+            conn.commit()
+        logger.info(f"Populated {len(layer_records)} rows in {schema}.project_layers")
+
+    # ------------------------------------------------------------------
+    # Companion file helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_companion(
+        self,
+        datasource: str,
+        companion_map: Dict[str, Path],
+    ) -> Optional[Path]:
+        """Return the companion Path matching the datasource file reference."""
+        file_part = datasource.split('|')[0].lstrip('./')
+        filename = Path(file_part).name.lower()
+        return companion_map.get(filename)
+
+    def _srid_from_companion(
+        self,
+        companion_path: Path,
+        fiona_layer: Optional[str] = None,
+    ) -> int:
+        """Extract EPSG code from a fiona source; default 4326 if unreadable."""
+        try:
+            open_kwargs: dict = {'path': str(companion_path)}
+            if fiona_layer:
+                open_kwargs['layer'] = fiona_layer
+            with fiona.open(**open_kwargs) as src:
+                crs = src.crs or {}
+                # fiona ≥ 1.9 uses CRS object with .to_epsg()
+                if hasattr(crs, 'to_epsg'):
+                    epsg = crs.to_epsg()
+                    if epsg:
+                        return int(epsg)
+                # Older fiona: dict with 'init' key
+                init = crs.get('init', '') if isinstance(crs, dict) else ''
+                if init.upper().startswith('EPSG:'):
+                    return int(init.split(':')[1])
+        except Exception as exc:
+            logger.warning(f"Could not determine SRID from {companion_path}: {exc}")
+        return 4326
+
+    # ------------------------------------------------------------------
+    # Enrichment helper (feature counts + geometry_type from fiona)
+    # ------------------------------------------------------------------
+
+    def _enrich_from_companions(
+        self,
+        layer_records: List[LayerRecord],
+        companion_map: Dict[str, Path],
+    ) -> None:
         """
-        Repackage .qgz file with modified .qgs
-        
-        Args:
-            source_dir: Directory with extracted .qgz contents
-            output_path: Output .qgz file path
-            qgs_file: Modified .qgs file
+        Open companion data files with fiona and enrich matching layer records.
+
+        For each layer record whose datasource references a companion file:
+          - sets features_count from the fiona collection length
+          - fills geometry_type if it is still empty
+
+        Operates in-place.  Any fiona error is logged and skipped.
         """
-        import zipfile
-        
-        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # Add modified .qgs with original name
-            original_qgs_files = list(source_dir.glob('*.qgs'))
-            # Filter out our own 'modified.qgs' temp file
-            original_qgs_files = [f for f in original_qgs_files if f.name != 'modified.qgs']
-            if not original_qgs_files:
-                raise ValueError("No original .qgs file found in extracted directory")
-            original_qgs = original_qgs_files[0]
-            zf.write(qgs_file, original_qgs.name)
-            
-            # Files to exclude from repackage
-            exclude_files = {original_qgs, qgs_file, output_path}
-            
-            # Add all other files (excluding .qgs files and output)
-            for file_path in source_dir.rglob('*'):
-                if file_path.is_file() and file_path not in exclude_files:
-                    # Skip any temp .qgz files inside extracted dir
-                    if file_path.suffix == '.qgz':
-                        continue
-                    arcname = file_path.relative_to(source_dir)
-                    zf.write(file_path, arcname)
-        
-        logger.info(f"Repackaged .qgz: {output_path}")
-    
-    def rollback_migration(self, project_name: str, migration_results: List[MigrationResult]):
-        """
-        Rollback migration by dropping created PostGIS tables
-        
-        Args:
-            project_name: Project name
-            migration_results: List of migration results
-        """
-        logger.warning(f"Rolling back migration for project: {project_name}")
-        
-        extractor = LayerExtractor(project_name, self.engine)
-        
-        for result in migration_results:
-            if result.success and result.table_name:
-                try:
-                    extractor.drop_table(result.table_name)
-                    logger.info(f"Dropped table: {result.table_name}")
-                except Exception as e:
-                    logger.error(f"Failed to drop table {result.table_name}: {e}")
+        if not companion_map:
+            return
+
+        logger.info(
+            f"Enriching layer records from {len(companion_map)} companion file(s): "
+            f"{list(companion_map.keys())}"
+        )
+
+        for rec in layer_records:
+            if not rec.datasource:
+                continue
+
+            companion_path = self._resolve_companion(rec.datasource, companion_map)
+            if companion_path is None:
+                continue
+
+            fiona_layer: Optional[str] = None
+            if '|layername=' in rec.datasource:
+                fiona_layer = rec.datasource.split('|layername=')[1].split('|')[0]
+
+            try:
+                open_kwargs: dict = {'path': str(companion_path)}
+                if fiona_layer:
+                    open_kwargs['layer'] = fiona_layer
+
+                with fiona.open(**open_kwargs) as src:
+                    count = len(src)
+                    geom = (src.schema or {}).get('geometry', '') or ''
+
+                    rec.features_count = count
+                    if not rec.geometry_type and geom:
+                        rec.geometry_type = geom.replace('3D ', '').split()[-1]
+
+                    logger.info(
+                        f"  Enriched '{rec.layer_name}' from "
+                        f"{companion_path.name}"
+                        f"{'/' + fiona_layer if fiona_layer else ''}: "
+                        f"{count} features, geometry={rec.geometry_type}"
+                    )
+
+            except Exception as exc:
+                logger.warning(
+                    f"  Could not enrich '{rec.layer_name}' from "
+                    f"{companion_path.name}: {exc}"
+                )

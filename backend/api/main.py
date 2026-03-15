@@ -21,7 +21,7 @@ from services.project_service import ProjectService
 from services.data_service import DataService
 from services.qwc_service import QWCService
 from services.qgis_storage_service import storage_service
-from services.project_migrator import ProjectMigrator
+from services.project_migrator import ProjectMigrator, LayerRecord
 from services.symbol_service import symbol_service, validate_sidc
 from models.schemas import ProjectResponse, TableSchema, UploadResponse
 from database.connection import db
@@ -301,205 +301,173 @@ async def get_project(project_name: str):
 async def upload_and_migrate_project(
     name: str = Form(..., description="Project identifier (lowercase, alphanumeric, underscore)", example="my_project"),
     title: Optional[str] = Form(None, description="Display title", example="My Awesome Project"),
-    description: Optional[str] = Form(None, description="Project description", example="Contains Swiss municipalities and transportation layers"),
+    description: Optional[str] = Form(None, description="Project description"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
-    data_files: Optional[List[UploadFile]] = File(default=None, description="Companion data files (.gpkg, .geojson, .shp, .dbf, .shx, .prj, .cpg, .fgb, .csv)")
+    data_files: Optional[List[UploadFile]] = File(
+        default=None,
+        description="Optional companion data files referenced by the project "
+                    "(.gpkg, .geojson, .shp, .fgb, .csv). "
+                    "Used to enrich layer metadata (feature counts, geometry types). "
+                    "Layer data is NOT migrated to PostGIS — files are read for "
+                    "metadata only."
+    )
 ):
     """
-    # Upload and Migrate QGIS Project
-    
-    Upload a .qgz project file with automatic layer migration to PostGIS.
-    
+    # Upload QGIS Project
+
+    Upload a .qgz project file.  All layers defined in the project XML are
+    recorded in `project_layers` with their original datasource strings.
+
+    ## Per-project schema
+
+    Each upload creates (or reuses) a dedicated PostgreSQL schema named
+    `prj_<name>` containing:
+    - `project` — project metadata
+    - `project_layers` — one row per layer
+    - `lyr_<layer>` — PostGIS feature table for each vector layer whose
+      companion data file is provided
+
+    The `.qgz` binary is stored in `public.projects.qgz_data`; the row also
+    carries a `schema_name` field pointing to the per-project schema.
+
     ## Companion Data Files
-    
+
     QGIS projects often reference external data files (GeoPackage, GeoJSON,
-    Shapefile, etc.) with relative paths like `./data.gpkg`. These files are
-    **not** embedded in the .qgz archive.
-    
-    Upload them via the `data_files` parameter so that layer migration can
-    find and extract them to PostGIS.
-    
-    **Supported formats**: `.gpkg`, `.geojson`, `.json`, `.shp` (+ `.dbf`,
-    `.shx`, `.prj`, `.cpg`), `.fgb`, `.csv`
-    
+    Shapefile, etc.) with relative paths like `./data.gpkg`. Upload these
+    alongside the `.qgz` via `data_files`.  For each matching vector layer a
+    PostGIS feature table `lyr_<name>` is created in the project schema with
+    the original SRID (no reprojection).
+
     ### Example with curl
     ```bash
     curl -X POST https://api.intelligeo.net/api/projects \\
       -F 'name=my_project' \\
       -F 'title=My Project' \\
       -F 'file=@project.qgz' \\
-      -F 'data_files=@data.gpkg' \\
-      -F 'data_files=@points.geojson'
+      -F 'data_files=@data.gpkg'
     ```
-    
-    ## Workflow:
-    
-    1. **Validation**: Check file extension, size (50MB max), name format
-    2. **Companion files**: Copy uploaded data files alongside extracted .qgz
-    3. **Parsing**: Extract project structure, layers, CRS, extent
-    4. **Migration**: Convert local layers (GeoPackage, GeoJSON, Shapefile) to PostGIS tables
-    5. **Datasource Update**: Rewrite .qgz to reference PostGIS connections
-    6. **Storage**: Store modified .qgz in PostgreSQL BYTEA column
-    
-    ## Supported Layer Sources:
-    - GeoPackage (.gpkg)
-    - GeoJSON (.geojson)
-    - Shapefile (.shp)
-    - FlatGeobuf (.fgb)
-    - CSV with coordinates
-    
-    ## Naming Rules:
-    - Lowercase letters and numbers only
-    - Underscores allowed
-    - Example: `swiss_municipalities`, `my_project_2024`
-    
-    ## Returns:
+
+    ## Workflow
+
+    1. **Validation**: file extension, size ≤ 50 MB, name format
+    2. **Parsing**: extract layer metadata from .qgz XML (QGZParser)
+    3. **Schema creation**: `prj_<name>` schema + `project` / `project_layers` tables
+    4. **Feature extraction** *(companion files)*: `lyr_<layer>` PostGIS tables
+    5. **Storage**: `.qgz` bytes in `public.projects.qgz_data` (BYTEA)
+    6. **Layer metadata**: one row per layer in `public.project_layers`
+
+    ## Returns
     ```json
     {
       "success": true,
       "project": {
-        "id": "uuid",
-        "name": "my_project",
-        "title": "My Project",
-        "layers_count": 5,
-        "qgz_size": 1234567
+        "id": "…", "name": "…", "schema_name": "prj_…",
+        "layers_count": 5, "qgz_size": 123456
       },
-      "migration": {
-        "total_layers": 5,
-        "migrated": 4,
-        "failed": 1,
-        "details": [
-          {
-            "layer_name": "municipalities",
-            "table_name": "my_project_municipalities",
-            "features_count": 2352,
-            "geometry_type": "MultiPolygon",
-            "success": true
-          }
-        ]
-      }
+      "layers": [
+        {
+          "layer_name": "parcels", "layer_type": "vector",
+          "geometry_type": "Polygon", "source_type": "gpkg",
+          "crs": "EPSG:2056", "features_count": 1842,
+          "table_name": "lyr_parcels"
+        }
+      ]
     }
     ```
-    
-    ## Errors:
-    - `400`: Invalid file type, name format, or companion file extension
-    - `500`: Migration failure (tables rolled back automatically)
+
+    ## Errors
+    - `400`: invalid file type or name format
+    - `500`: parse / DB failure
     """
     import uuid
     from datetime import datetime
     from sqlalchemy import text
-    
-    # Allowed companion file extensions
+
+    # Allowed companion file extensions (metadata-only inspection)
     ALLOWED_DATA_EXTENSIONS = {
         '.gpkg', '.geojson', '.json', '.shp', '.dbf', '.shx', '.prj', '.cpg',
         '.fgb', '.csv'
     }
-    
+
     try:
-        # Normalize data_files: None or empty string from frontend → empty list
+        # Normalise data_files — Swagger UI may send empty-filename entries
         raw_data_files = data_files if data_files else []
-        
-        # Filter out invalid data_files entries (Swagger UI / frontend may send empty strings)
         valid_data_files = [
             df for df in raw_data_files
             if isinstance(df, UploadFile) and df.filename
         ]
-        
+
         logger.info(
-            f"Upload request: name={name}, data_files_raw={len(raw_data_files)}, "
-            f"valid_data_files={len(valid_data_files)}, "
-            f"filenames={[df.filename for df in valid_data_files]}"
+            f"Upload request: name={name}, "
+            f"companion_files={[df.filename for df in valid_data_files]}"
         )
-        
+
         # Validate file extension
         if not file.filename.endswith('.qgz'):
             raise HTTPException(
                 status_code=400,
                 detail="Invalid file type. Only .qgz files are accepted"
             )
-        
+
         # Validate project name format
         if not name.replace('_', '').isalnum() or not name.islower():
             raise HTTPException(
                 status_code=400,
                 detail="Project name must be lowercase alphanumeric with underscores only"
             )
-        
+
         # Validate companion file extensions
         for df in valid_data_files:
-            if df.filename:
-                ext = Path(df.filename).suffix.lower()
-                if ext not in ALLOWED_DATA_EXTENSIONS:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Unsupported companion file type: {df.filename}. "
-                               f"Allowed: {', '.join(sorted(ALLOWED_DATA_EXTENSIONS))}"
-                    )
-        
-        # Save uploaded file to temp location
+            ext = Path(df.filename).suffix.lower()
+            if ext not in ALLOWED_DATA_EXTENSIONS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported companion file type: {df.filename}. "
+                           f"Allowed: {', '.join(sorted(ALLOWED_DATA_EXTENSIONS))}"
+                )
+
+        # Save .qgz to a temp file
         temp_file = Path(tempfile.mktemp(suffix='.qgz'))
         companion_dir = None
         try:
             content = await file.read()
-            
-            # Validate file size (50MB limit)
             if len(content) > 50 * 1024 * 1024:
-                raise HTTPException(
-                    status_code=400,
-                    detail="File size exceeds 50MB limit"
-                )
-            
+                raise HTTPException(status_code=400, detail="File size exceeds 50MB limit")
             temp_file.write_bytes(content)
-            
-            # Save companion data files to a temp directory
-            # They will be copied into the .qgz extraction dir by the migrator
+
+            # Save companion files to a temp directory
             companion_paths: List[Path] = []
             if valid_data_files:
-                companion_dir = Path(tempfile.mkdtemp(prefix='qgz_companion_'))
-                total_companion_size = 0
+                import tempfile as _tmp
+                companion_dir = Path(_tmp.mkdtemp(prefix='qgz_companion_'))
                 for df in valid_data_files:
                     df_content = await df.read()
-                    total_companion_size += len(df_content)
-                    
-                    # 200MB total limit for companion files
-                    if total_companion_size > 200 * 1024 * 1024:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Total companion data files size exceeds 200MB limit"
-                        )
-                    
-                    companion_path = companion_dir / df.filename
-                    companion_path.parent.mkdir(parents=True, exist_ok=True)
-                    companion_path.write_bytes(df_content)
-                    companion_paths.append(companion_path)
-                    logger.info(f"Saved companion file: {df.filename} ({len(df_content)} bytes, exists={companion_path.exists()})")
-            
-            logger.info(f"Companion paths: {[str(p) for p in companion_paths]}")
-            
-            # Migrate project: parse, extract layers, update datasources.
-            # Layers whose source file is missing are skipped (not migrated)
-            # and kept as-is in the .qgz.  This follows the QGIS Cloud pattern
-            # where data upload is best-effort and non-blocking.
-            project_info, migration_results, modified_qgz_bytes = project_migrator.migrate_project(
+                    dest = companion_dir / df.filename
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(df_content)
+                    companion_paths.append(dest)
+                    logger.info(f"Saved companion: {df.filename} ({len(df_content)} bytes)")
+
+            # Parse project, create per-project schema, extract feature tables
+            project_info, layer_records, qgz_bytes, proj_schema = project_migrator.migrate_project(
                 qgz_path=temp_file,
                 project_name=name,
-                target_crs='EPSG:2056',  # Swiss LV95
-                companion_files=companion_paths
+                companion_files=companion_paths if companion_paths else None,
             )
             
-            # Store project in database
+            # Store project in database (public.projects central catalog)
             project_id = str(uuid.uuid4())
             insert_sql = text("""
                 INSERT INTO projects (
                     id, user_id, name, title, description, is_public,
-                    qgz_data, qgz_size, crs,
+                    qgz_data, qgz_size, crs, schema_name,
                     extent_minx, extent_miny, extent_maxx, extent_maxy,
                     created_at, updated_at
                 )
                 VALUES (
                     :id, :user_id, :name, :title, :description, :is_public,
-                    :qgz_data, :qgz_size, :crs,
+                    :qgz_data, :qgz_size, :crs, :schema_name,
                     :minx, :miny, :maxx, :maxy,
                     :created_at, :updated_at
                 )
@@ -509,6 +477,7 @@ async def upload_and_migrate_project(
                     qgz_data = EXCLUDED.qgz_data,
                     qgz_size = EXCLUDED.qgz_size,
                     crs = EXCLUDED.crs,
+                    schema_name = EXCLUDED.schema_name,
                     extent_minx = EXCLUDED.extent_minx,
                     extent_miny = EXCLUDED.extent_miny,
                     extent_maxx = EXCLUDED.extent_maxx,
@@ -520,14 +489,15 @@ async def upload_and_migrate_project(
             with db.get_engine().connect() as conn:
                 result = conn.execute(insert_sql, {
                     'id': project_id,
-                    'user_id': None,  # TODO: Get from auth context
+                    'user_id': None,
                     'name': name,
                     'title': title or project_info.title,
                     'description': description,
                     'is_public': is_public,
-                    'qgz_data': modified_qgz_bytes,
-                    'qgz_size': len(modified_qgz_bytes),
+                    'qgz_data': qgz_bytes,
+                    'qgz_size': len(qgz_bytes),
                     'crs': project_info.crs,
+                    'schema_name': proj_schema,
                     'minx': project_info.extent[0],
                     'miny': project_info.extent[1],
                     'maxx': project_info.extent[2],
@@ -535,50 +505,43 @@ async def upload_and_migrate_project(
                     'created_at': datetime.utcnow(),
                     'updated_at': datetime.utcnow()
                 })
-                # Get the actual project ID (may differ from generated one on conflict)
                 row = result.fetchone()
                 project_id = str(row[0]) if row else project_id
                 
-                # Delete old layer metadata for this project (in case of re-upload)
+                # Delete old layer metadata for this project (re-upload case)
                 conn.execute(
                     text("DELETE FROM project_layers WHERE project_id = :pid"),
                     {'pid': project_id}
                 )
                 conn.commit()
             
-            # Store layer metadata (all in one connection)
+            # Store layer metadata in public.project_layers (central catalog)
             with db.get_engine().connect() as conn:
-                for migration_result in migration_results:
-                    if migration_result.success:
-                        layer_info = next(
-                            (l for l in project_info.layers if l.name == migration_result.layer_name),
-                            None
+                for rec in layer_records:
+                    conn.execute(text("""
+                        INSERT INTO project_layers (
+                            id, project_id, layer_name, layer_type,
+                            geometry_type, source_type, table_name, datasource,
+                            crs, features_count
                         )
-                        if layer_info:
-                            conn.execute(text("""
-                                INSERT INTO project_layers (
-                                    id, project_id, layer_name, layer_type, 
-                                    geometry_type, source_type, table_name, datasource
-                                )
-                                VALUES (
-                                    :id, :project_id, :layer_name, :layer_type,
-                                    :geometry_type, :source_type, :table_name, :datasource
-                                )
-                            """), {
-                                'id': str(uuid.uuid4()),
-                                'project_id': project_id,
-                                'layer_name': layer_info.name,
-                                'layer_type': layer_info.layer_type,
-                                'geometry_type': layer_info.geometry_type,
-                                'source_type': layer_info.source_type or 'unknown',
-                                'table_name': migration_result.table_name,
-                                'datasource': 'postgis'
-                            })
+                        VALUES (
+                            :id, :project_id, :layer_name, :layer_type,
+                            :geometry_type, :source_type, :table_name, :datasource,
+                            :crs, :features_count
+                        )
+                    """), {
+                        'id': str(uuid.uuid4()),
+                        'project_id': project_id,
+                        'layer_name': rec.layer_name,
+                        'layer_type': rec.layer_type,
+                        'geometry_type': rec.geometry_type,
+                        'source_type': rec.source_type,
+                        'table_name': rec.table_name or '',
+                        'datasource': rec.datasource,
+                        'crs': rec.crs,
+                        'features_count': rec.features_count,
+                    })
                 conn.commit()
-            
-            # Build response
-            successful_migrations = [r for r in migration_results if r.success]
-            failed_migrations = [r for r in migration_results if not r.success]
             
             return {
                 "success": True,
@@ -590,25 +553,24 @@ async def upload_and_migrate_project(
                     "is_public": is_public,
                     "crs": project_info.crs,
                     "extent": project_info.extent,
-                    "layers_count": len(project_info.layers),
-                    "qgz_size": len(modified_qgz_bytes)
+                    "schema_name": proj_schema,
+                    "layers_count": len(layer_records),
+                    "qgz_size": len(qgz_bytes)
                 },
-                "migration": {
-                    "total_layers": len(project_info.layers),
-                    "migrated": len(successful_migrations),
-                    "failed": len(failed_migrations),
-                    "details": [
-                        {
-                            "layer_name": r.layer_name,
-                            "table_name": r.table_name,
-                            "features_count": r.features_count,
-                            "geometry_type": r.geometry_type,
-                            "success": r.success,
-                            "error": r.error
-                        }
-                        for r in migration_results
-                    ]
-                }
+                "layers": [
+                    {
+                        "layer_name": r.layer_name,
+                        "layer_type": r.layer_type,
+                        "geometry_type": r.geometry_type,
+                        "source_type": r.source_type,
+                        "crs": r.crs,
+                        "features_count": r.features_count,
+                        "table_name": r.table_name or None,
+                        "success": r.success,
+                        "error": r.error,
+                    }
+                    for r in layer_records
+                ]
             }
             
         finally:

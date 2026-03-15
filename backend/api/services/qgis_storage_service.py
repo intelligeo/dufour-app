@@ -186,7 +186,7 @@ class QGISStorageService:
             result = session.execute(text("""
                 SELECT 
                     p.id, p.name, p.title, p.description,
-                    p.qgz_size, p.crs,
+                    p.qgz_size, p.crs, p.schema_name,
                     p.extent_minx, p.extent_miny, p.extent_maxx, p.extent_maxy,
                     p.created_at, p.updated_at,
                     u.username as owner
@@ -204,10 +204,11 @@ class QGISStorageService:
                     'description': row[3],
                     'file_size': row[4],
                     'crs': row[5],
-                    'extent': [row[6], row[7], row[8], row[9]] if row[6] else None,
-                    'created_at': row[10],
-                    'modified_at': row[11],
-                    'owner': row[12],
+                    'schema_name': row[6],
+                    'extent': [row[7], row[8], row[9], row[10]] if row[7] else None,
+                    'created_at': row[11],
+                    'modified_at': row[12],
+                    'owner': row[13],
                     'wms_url': f"/api/projects/{row[1]}/wms"
                 })
             

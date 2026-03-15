@@ -62,7 +62,8 @@ class LayerExtractor:
         self,
         layer_info: LayerInfo,
         source_path: Path,
-        target_crs: str = 'EPSG:2056'
+        target_crs: str = 'EPSG:2056',
+        schema: str = 'public'
     ) -> MigrationResult:
         """
         Extract layer data and migrate to PostGIS
@@ -71,11 +72,12 @@ class LayerExtractor:
             layer_info: Layer information from QGZ parser
             source_path: Path to source file (gpkg, shp, geojson, etc.)
             target_crs: Target CRS for PostGIS (default: EPSG:2056 - Swiss LV95)
+            schema: Target PostgreSQL schema (default: public)
             
         Returns:
             MigrationResult with migration details
         """
-        logger.info(f"Extracting layer: {layer_info.name} from {source_path}")
+        logger.info(f"Extracting layer: {layer_info.name} from {source_path} → schema={schema}")
         
         # Validate format
         if layer_info.source_type not in self.SUPPORTED_FORMATS:
@@ -91,7 +93,7 @@ class LayerExtractor:
             )
         
         try:
-            # Generate table name
+            # Generate table name (unqualified — schema provides project isolation)
             table_name = self._generate_table_name(layer_info.name)
             
             # Read source data with fiona
@@ -106,12 +108,13 @@ class LayerExtractor:
                     f"geometry: {geometry_type}, CRS: {source_crs}"
                 )
                 
-                # Create PostGIS table
+                # Create PostGIS table in target schema
                 self._create_postgis_table(
                     table_name=table_name,
                     geometry_type=geometry_type,
                     srid=self._extract_epsg_code(target_crs),
-                    properties=src.schema['properties']
+                    properties=src.schema['properties'],
+                    schema=schema
                 )
                 
                 # Transform and insert features
@@ -119,10 +122,12 @@ class LayerExtractor:
                 inserted = self._insert_features(
                     src=src,
                     table_name=table_name,
-                    transformer=transformer
+                    transformer=transformer,
+                    schema=schema,
+                    srid=self._extract_epsg_code(target_crs)
                 )
                 
-                logger.info(f"Inserted {inserted} features into {table_name}")
+                logger.info(f"Inserted {inserted} features into {schema}.{table_name}")
                 
                 return MigrationResult(
                     layer_name=layer_info.name,
@@ -149,20 +154,16 @@ class LayerExtractor:
     
     def _generate_table_name(self, layer_name: str) -> str:
         """
-        Generate PostGIS table name from layer name
+        Generate PostGIS table name from layer name.
         
-        Args:
-            layer_name: Original layer name
-            
-        Returns:
-            Sanitized table name: {project_name}_{layer_name}
+        The project schema provides isolation, so no project prefix is needed.
+        Returns: lyr_{sanitized_layer_name} (max 63 chars)
         """
         # Sanitize: lowercase, alphanumeric + underscore only
         safe_layer = ''.join(c if c.isalnum() or c == '_' else '_' for c in layer_name)
-        safe_layer = safe_layer.lower()
+        safe_layer = safe_layer.lower().strip('_')
         
-        # Combine with project name
-        table_name = f"{self.project_name}_{safe_layer}"
+        table_name = f"lyr_{safe_layer}"
         
         # Truncate if too long (PostgreSQL limit: 63 chars)
         if len(table_name) > 63:
@@ -189,20 +190,22 @@ class LayerExtractor:
         table_name: str,
         geometry_type: str,
         srid: int,
-        properties: Dict[str, str]
+        properties: Dict[str, str],
+        schema: str = 'public'
     ):
         """
-        Create PostGIS table for layer data
+        Create PostGIS table for layer data in the given schema.
         
         Args:
-            table_name: Table name
+            table_name: Unqualified table name
             geometry_type: Geometry type (Point, LineString, Polygon, etc.)
             srid: EPSG SRID code
             properties: Dictionary of property names and types
+            schema: Target PostgreSQL schema (default: public)
         """
         with self.engine.connect() as conn:
-            # Drop table if exists
-            conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
+            # Drop table if exists (qualified with schema)
+            conn.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{table_name}" CASCADE'))
             
             # Build column definitions
             columns = ['fid SERIAL PRIMARY KEY']
@@ -213,26 +216,29 @@ class LayerExtractor:
                 pg_type = self._map_fiona_type_to_postgres(prop_type)
                 columns.append(f'"{col_name}" {pg_type}')
             
-            # Create table
+            # Create table in target schema
             columns_sql = ', '.join(columns)
-            create_sql = f'CREATE TABLE "{table_name}" ({columns_sql})'
+            create_sql = f'CREATE TABLE "{schema}"."{table_name}" ({columns_sql})'
             conn.execute(text(create_sql))
             
-            # Add geometry column
+            # Add geometry column (schema-qualified)
             add_geom_sql = f"""
                 SELECT AddGeometryColumn(
-                    '', '{table_name}', 'geom', {srid}, 
+                    '{schema}', '{table_name}', 'geom', {srid}, 
                     '{geometry_type.upper()}', 2
                 )
             """
             conn.execute(text(add_geom_sql))
             
-            # Create spatial index
-            index_sql = f'CREATE INDEX "{table_name}_geom_idx" ON "{table_name}" USING GIST (geom)'
+            # Create spatial index (schema-qualified)
+            index_sql = (
+                f'CREATE INDEX "{table_name}_geom_idx" '
+                f'ON "{schema}"."{table_name}" USING GIST (geom)'
+            )
             conn.execute(text(index_sql))
             
             conn.commit()
-            logger.info(f"Created PostGIS table: {table_name}")
+            logger.info(f"Created PostGIS table: {schema}.{table_name}")
     
     def _sanitize_column_name(self, name: str) -> str:
         """
@@ -327,19 +333,28 @@ class LayerExtractor:
         self,
         src: fiona.Collection,
         table_name: str,
-        transformer=None
+        transformer=None,
+        schema: str = 'public',
+        srid: Optional[int] = None
     ) -> int:
         """
-        Insert features from source into PostGIS table
+        Insert features from source into PostGIS table (schema-qualified).
         
         Args:
             src: Fiona collection (source data)
-            table_name: Target table name
+            table_name: Unqualified target table name
             transformer: Optional CRS transformer function
+            schema: Target PostgreSQL schema (default: public)
+            srid: SRID to use for ST_GeomFromText; falls back to source CRS
             
         Returns:
             Number of features inserted
         """
+        # Resolve SRID once: prefer explicit arg, then fiona CRS, then default 2056
+        if srid is None:
+            src_init = (src.crs or {}).get('init', 'EPSG:2056')
+            srid = self._extract_epsg_code(src_init if 'EPSG' in src_init.upper() else 'EPSG:2056')
+
         inserted = 0
         
         with self.engine.connect() as conn:
@@ -368,22 +383,20 @@ class LayerExtractor:
                     columns.append('geom')
                     wkt = geom.wkt
                     
-                    # Build INSERT statement
+                    # Build INSERT statement (schema-qualified table)
                     columns_sql = ', '.join(columns)
                     placeholders = ', '.join([':val' + str(i) for i in range(len(values))])
                     placeholders += ', ST_GeomFromText(:geom_wkt, :srid)'
                     
                     insert_sql = f'''
-                        INSERT INTO "{table_name}" ({columns_sql})
+                        INSERT INTO "{schema}"."{table_name}" ({columns_sql})
                         VALUES ({placeholders})
                     '''
                     
                     # Execute insert
                     params = {f'val{i}': v for i, v in enumerate(values)}
                     params['geom_wkt'] = wkt
-                    params['srid'] = self._extract_epsg_code(
-                        src.crs.get('init', 'EPSG:2056')
-                    )
+                    params['srid'] = srid
                     
                     conn.execute(text(insert_sql), params)
                     inserted += 1
@@ -432,27 +445,29 @@ class LayerExtractor:
         
         return connection_string
     
-    def table_exists(self, table_name: str) -> bool:
+    def table_exists(self, table_name: str, schema: str = 'public') -> bool:
         """
-        Check if table exists in database
+        Check if table exists in the given schema.
         
         Args:
             table_name: Table name to check
+            schema: PostgreSQL schema to inspect (default: public)
             
         Returns:
             True if table exists
         """
         inspector = inspect(self.engine)
-        return table_name in inspector.get_table_names()
+        return table_name in inspector.get_table_names(schema=schema)
     
-    def drop_table(self, table_name: str):
+    def drop_table(self, table_name: str, schema: str = 'public'):
         """
-        Drop PostGIS table
+        Drop PostGIS table from the given schema.
         
         Args:
             table_name: Table name to drop
+            schema: PostgreSQL schema (default: public)
         """
         with self.engine.connect() as conn:
-            conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
+            conn.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{table_name}" CASCADE'))
             conn.commit()
-            logger.info(f"Dropped table: {table_name}")
+            logger.info(f"Dropped table: {schema}.{table_name}")
