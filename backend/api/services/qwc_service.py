@@ -173,7 +173,8 @@ class QWCService:
                         {"name": "swisstopo_national"},
                         {"name": "osm"}
                     ],
-                    "sublayers": [],
+                    # NON includere "sublayers": [] — QWC2 chiama GetCapabilities
+                    # automaticamente se il campo è assente, popolando il layer tree
                     "thumbnail": "img/mapthumbs/default.jpg",
                     "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
                 }
@@ -215,7 +216,6 @@ class QWCService:
                         {"name": "swisstopo_national"},
                         {"name": "osm"}
                     ],
-                    "sublayers": [],
                     "thumbnail": "img/mapthumbs/default.jpg"
                 }
                 items.append(item)
@@ -244,7 +244,6 @@ class QWCService:
                     {"name": "swisstopo_national"},
                     {"name": "osm"}
                 ],
-                "sublayers": [],
                 "thumbnail": "img/mapthumbs/default.jpg",
                 "additionalMouseCrs": ["EPSG:2056", "EPSG:4326", "EPSG:21781", "MGRS"]
             })
