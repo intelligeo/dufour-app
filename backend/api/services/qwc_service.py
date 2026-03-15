@@ -147,21 +147,9 @@ class QWCService:
                 # If project CRS is EPSG:2056 (Swiss), extent is in Swiss coords → reproject to WGS84
                 bbox_bounds = self._extent_to_wgs84(extent, map_crs)
 
-                # Leggi WMSRootName dal .qgz: è il nome del root layer WMS pubblicato
-                # da QGIS Server. QWC2 invia LAYERS=<wms_name> nelle GetMap.
-                # Se diverso da project_name, senza questo la GetMap riceve 400.
-                wms_name = project_name  # default
-                try:
-                    from services.qgis_storage_service import storage_service as _ss
-                    qgz_bytes = _ss.retrieve_qgz(project_name)
-                    if qgz_bytes:
-                        wms_name = self._read_wms_root_name(qgz_bytes, project_name)
-                except Exception as wms_err:
-                    logger.warning(f"Cannot read WMSRootName for {project_name}: {wms_err}")
-
                 item = {
                     "id": project_name,
-                    "name": wms_name,
+                    "name": project_name,
                     "title": project.get('title') or project_name,
                     "description": project.get('description') or '',
                     "url": wms_url,
@@ -377,33 +365,6 @@ class QWCService:
         """Safely get text from XML element"""
         elem = root.find(xpath)
         return elem.text if elem is not None else None
-
-    def _read_wms_root_name(self, qgz_bytes: bytes, fallback: str) -> str:
-        """
-        Legge WMSRootName dal .qgz (QGIS project XML).
-        Questo è il nome del root layer WMS pubblicato da QGIS Server,
-        che QWC2 usa come valore di LAYERS= nelle richieste GetMap.
-        Se assente o vuoto, ritorna il fallback (di solito il project_name).
-        """
-        try:
-            import io, zipfile
-            with zipfile.ZipFile(io.BytesIO(qgz_bytes)) as z:
-                # Il .qgs è il primo file nell'archivio
-                qgs_names = [n for n in z.namelist() if n.endswith('.qgs')]
-                if not qgs_names:
-                    return fallback
-                xml_content = z.read(qgs_names[0])
-            root = ET.fromstring(xml_content)
-            # WMSRootName è in <properties><WMSRootName>
-            wms_root = root.findtext('.//properties/WMSRootName')
-            if wms_root and wms_root.strip():
-                return wms_root.strip()
-            # Fallback: projectname attribute
-            projectname = root.get('projectname', '').strip()
-            return projectname if projectname else fallback
-        except Exception as e:
-            logger.warning(f"_read_wms_root_name failed for {fallback}: {e}")
-            return fallback
     
     
     def _extract_extent(self, root: ET.Element) -> List[float]:
