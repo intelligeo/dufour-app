@@ -303,7 +303,7 @@ async def upload_and_migrate_project(
     description: Optional[str] = Form(None, description="Project description", example="Contains Swiss municipalities and transportation layers"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
-    data_files: List[UploadFile] = File(default=[], description="Companion data files (.gpkg, .geojson, .shp, .dbf, .shx, .prj, .cpg, .fgb, .csv)")
+    data_files: Optional[List[UploadFile]] = File(default=None, description="Companion data files (.gpkg, .geojson, .shp, .dbf, .shx, .prj, .cpg, .fgb, .csv)")
 ):
     """
     # Upload and Migrate QGIS Project
@@ -396,14 +396,17 @@ async def upload_and_migrate_project(
     }
     
     try:
-        # Filter out invalid data_files entries (Swagger UI may send empty strings)
+        # Normalize data_files: None or empty string from frontend → empty list
+        raw_data_files = data_files if data_files else []
+        
+        # Filter out invalid data_files entries (Swagger UI / frontend may send empty strings)
         valid_data_files = [
-            df for df in data_files
+            df for df in raw_data_files
             if isinstance(df, UploadFile) and df.filename
         ]
         
         logger.info(
-            f"Upload request: name={name}, data_files_raw={len(data_files)}, "
+            f"Upload request: name={name}, data_files_raw={len(raw_data_files)}, "
             f"valid_data_files={len(valid_data_files)}, "
             f"filenames={[df.filename for df in valid_data_files]}"
         )
