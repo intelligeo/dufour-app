@@ -251,6 +251,59 @@ class ProjectMigrator:
         
         return None
     
+    def check_missing_files(
+        self,
+        qgz_path: Path,
+        companion_files: Optional[List[Path]] = None
+    ) -> Tuple[ProjectInfo, List[str]]:
+        """
+        Pre-check: parse .qgz and identify missing companion data files.
+        
+        Call this BEFORE migrate_project to give the user a clear 422 error
+        listing exactly which files need to be uploaded via data_files.
+        
+        Args:
+            qgz_path: Path to .qgz file
+            companion_files: Optional companion files already provided
+            
+        Returns:
+            Tuple of (ProjectInfo, list of missing filenames)
+        """
+        with QGZParser(qgz_path) as parser:
+            parser.extract()
+            parser.parse_xml()
+            project_info = parser.get_project_info()
+            
+            # Copy companion files into extraction directory (same as migrate)
+            if companion_files:
+                for cp in companion_files:
+                    if cp.exists():
+                        shutil.copy2(cp, parser.temp_dir / cp.name)
+            
+            # Check each local layer
+            missing: List[str] = []
+            seen_files: set = set()
+            
+            for layer in project_info.layers:
+                if not layer.is_local:
+                    continue
+                if layer.source_type not in LayerExtractor.SUPPORTED_FORMATS:
+                    continue
+                
+                # Extract the filename from datasource
+                ds = layer.datasource.split('|')[0].lstrip('./')
+                filename = Path(ds).name
+                
+                if filename in seen_files:
+                    continue  # Already checked this file
+                seen_files.add(filename)
+                
+                source = self._find_layer_source(parser.temp_dir, layer.datasource)
+                if not source:
+                    missing.append(filename)
+            
+            return project_info, missing
+
     def _repackage_qgz(
         self,
         source_dir: Path,

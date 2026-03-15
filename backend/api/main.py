@@ -460,6 +460,30 @@ async def upload_and_migrate_project(
                         companion_paths.append(companion_path)
                         logger.info(f"Saved companion file: {df.filename} ({len(df_content)} bytes)")
             
+            # Pre-check: identify missing companion data files BEFORE migration
+            _, missing_files = project_migrator.check_missing_files(
+                qgz_path=temp_file,
+                companion_files=companion_paths
+            )
+            
+            if missing_files:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "Missing companion data files",
+                        "message": (
+                            f"The QGIS project references {len(missing_files)} external data file(s) "
+                            f"that were not found in the .qgz archive or in the uploaded data_files."
+                        ),
+                        "missing_files": missing_files,
+                        "hint": (
+                            "Re-upload with the missing files using the data_files parameter. "
+                            "Example: curl -F 'file=@project.qgz' "
+                            + " ".join(f"-F 'data_files=@{f}'" for f in missing_files)
+                        )
+                    }
+                )
+            
             # Migrate project: parse, extract layers, update datasources
             project_info, migration_results, modified_qgz_bytes = project_migrator.migrate_project(
                 qgz_path=temp_file,
