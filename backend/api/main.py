@@ -1626,7 +1626,9 @@ async def wms_proxy(project_name: str, request: Request):
         if 'SERVICE' not in query_params:
             query_params['SERVICE'] = 'WMS'
         
-        # Ensure SERVICE and REQUEST are present (QWC2 may send via POST body)
+        # Default REQUEST to GetCapabilities if not specified
+        if 'REQUEST' not in query_params:
+            query_params['REQUEST'] = 'GetCapabilities'
         async with httpx.AsyncClient(timeout=30.0) as client:
             if request.method == "POST":
                 body = await request.body()
