@@ -49,12 +49,12 @@
     --list-item-text-color-active: #2c3e50;
     --list-item-text-color-active-hover: #2c3e50;
     /* App menu */
-    --app-menu-bg-color: white;
-    --app-menu-text-color: #fff;
-    --app-menu-bg-color-hover: #e7f1ff;
-    --app-menu-text-color-hover: #bbb;
-    --app-submenu-bg-color: #2c3e50;
-    --app-submenu-text-color: white;
+    --app-menu-bg-color: #2c3e50;
+    --app-menu-text-color: #e0e6ed;
+    --app-menu-bg-color-hover: #34495e;
+    --app-menu-text-color-hover: #ffffff;
+    --app-submenu-bg-color: #1a2533;
+    --app-submenu-text-color: #e0e6ed;
     --app-submenu-bg-color-hover: #34495e;
     --app-submenu-text-color-hover: white;
 }
