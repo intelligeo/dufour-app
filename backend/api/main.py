@@ -399,8 +399,14 @@ async def upload_and_migrate_project(
         # Filter out invalid data_files entries (Swagger UI may send empty strings)
         valid_data_files = [
             df for df in data_files
-            if isinstance(df, UploadFile) and df.filename and df.size and df.size > 0
+            if isinstance(df, UploadFile) and df.filename
         ]
+        
+        logger.info(
+            f"Upload request: name={name}, data_files_raw={len(data_files)}, "
+            f"valid_data_files={len(valid_data_files)}, "
+            f"filenames={[df.filename for df in valid_data_files]}"
+        )
         
         # Validate file extension
         if not file.filename.endswith('.qgz'):
@@ -463,7 +469,9 @@ async def upload_and_migrate_project(
                     companion_path.parent.mkdir(parents=True, exist_ok=True)
                     companion_path.write_bytes(df_content)
                     companion_paths.append(companion_path)
-                    logger.info(f"Saved companion file: {df.filename} ({len(df_content)} bytes)")
+                    logger.info(f"Saved companion file: {df.filename} ({len(df_content)} bytes, exists={companion_path.exists()})")
+            
+            logger.info(f"Companion paths for pre-check: {[str(p) for p in companion_paths]}")
             
             # Pre-check: identify missing companion data files BEFORE migration
             _, missing_files = project_migrator.check_missing_files(

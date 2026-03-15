@@ -278,7 +278,16 @@ class ProjectMigrator:
             if companion_files:
                 for cp in companion_files:
                     if cp.exists():
-                        shutil.copy2(cp, parser.temp_dir / cp.name)
+                        dest = parser.temp_dir / cp.name
+                        shutil.copy2(cp, dest)
+                        logger.info(f"[pre-check] Copied companion: {cp.name} -> {dest} (exists={dest.exists()})")
+                    else:
+                        logger.warning(f"[pre-check] Companion file not found: {cp}")
+            
+            # Log extraction directory contents
+            if parser.temp_dir:
+                all_files = list(parser.temp_dir.rglob('*'))
+                logger.info(f"[pre-check] temp_dir contents ({len(all_files)} files): {[f.name for f in all_files if f.is_file()]}")
             
             # Check each local layer
             missing: List[str] = []
