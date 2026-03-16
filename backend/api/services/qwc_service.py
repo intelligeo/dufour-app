@@ -147,6 +147,9 @@ class QWCService:
                 # If project CRS is EPSG:2056 (Swiss), extent is in Swiss coords → reproject to WGS84
                 bbox_bounds = self._extent_to_wgs84(extent, map_crs)
 
+                # Build sublayer list from migrated PostGIS layers (project_layers catalog)
+                sublayers = self._get_project_sublayers(project_name)
+
                 item = {
                     "id": project_name,
                     "name": project_name,
@@ -173,11 +176,10 @@ class QWCService:
                         {"name": "swisstopo_national"},
                         {"name": "osm"}
                     ],
-                    # sublayers:[] required by QWC2 LayerUtils — omitting it causes
-                    # "e.sublayers is undefined" crash in LayerTree.
-                    # QWC2 will replace this with the real layer tree from
-                    # GetCapabilities once the theme is loaded.
-                    "sublayers": [],
+                    # sublayers: pre-populated from project_layers catalog so QWC2
+                    # LayerTree has an initial list before GetCapabilities completes.
+                    # QWC2 will override this with the real GetCapabilities response.
+                    "sublayers": sublayers,
                     "thumbnail": "img/mapthumbs/default.jpg",
                     "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
                 }
@@ -347,6 +349,59 @@ class QWCService:
     
     
     # ============ Private Helper Methods ============
+
+    def _get_project_sublayers(self, project_name: str) -> List[Dict[str, Any]]:
+        """
+        Build a QWC2 sublayer list from the project_layers catalog for
+        the given project.
+
+        Each migrated vector layer (table_name not empty) becomes a WMS
+        sublayer entry so QWC2 can render it before GetCapabilities resolves.
+        Layers without a PostGIS table (raster, WMS, WFS, …) are included as
+        non-queryable entries so the layer tree is complete.
+
+        Returns an empty list on any error so theme generation never fails.
+        """
+        try:
+            from database.connection import db
+            from sqlalchemy import text as _text
+
+            with db.get_engine().connect() as conn:
+                rows = conn.execute(_text("""
+                    SELECT pl.layer_name, pl.layer_type, pl.geometry_type,
+                           pl.table_name, pl.features_count, pl.crs
+                    FROM project_layers pl
+                    JOIN projects p ON pl.project_id = p.id
+                    WHERE p.name = :name
+                    ORDER BY pl.layer_name
+                """), {'name': project_name}).fetchall()
+
+            sublayers = []
+            for row in rows:
+                layer_name, layer_type, geom_type, table_name, feat_count, crs = row
+                # A layer is queryable/identifiable only when it has been
+                # migrated to PostGIS (table_name is set).
+                has_table = bool(table_name)
+                sublayers.append({
+                    "name": layer_name,
+                    "title": layer_name,
+                    "visibility": True,
+                    "queryable": has_table,
+                    "displayField": "fid" if has_table else "",
+                    "type": "wms",
+                    "geometryType": geom_type or "",
+                    "featureCount": feat_count or 0,
+                    "crs": crs or "",
+                    # table hint for the identify tool
+                    "postgisTable": table_name or "",
+                    "sublayers": [],
+                })
+            return sublayers
+        except Exception as exc:
+            logger.warning(
+                f"_get_project_sublayers({project_name!r}) failed: {exc}"
+            )
+            return []
 
     def _extent_to_wgs84(self, extent: list, src_crs: str) -> List[float]:
         """

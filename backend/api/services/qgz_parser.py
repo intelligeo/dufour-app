@@ -3,6 +3,7 @@ QGZ Parser Service
 Extracts and parses QGIS project files (.qgz)
 Identifies layers, datasources, and prepares for PostGIS migration
 """
+import io
 import zipfile
 import tempfile
 import shutil
@@ -404,3 +405,34 @@ class QGZParser:
             logger.info(f"Updated datasource for layer {layer_id}")
         else:
             logger.warning(f"No datasource element found for layer {layer_id}")
+
+    def repackage_qgz(self) -> bytes:
+        """
+        Re-package the (modified) contents of temp_dir as a new .qgz archive.
+
+        Call this AFTER save_modified_qgs() to obtain the bytes of the new
+        .qgz file whose .qgs XML has already been rewritten with PostGIS
+        datasources.
+
+        Returns:
+            Bytes of the new .qgz (ZIP) archive.
+
+        Raises:
+            ValueError: If extract() has not been called yet.
+        """
+        if self.temp_dir is None or not self.temp_dir.exists():
+            raise ValueError("Must call extract() before repackage_qgz()")
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_path in sorted(self.temp_dir.iterdir()):
+                if file_path.is_file():
+                    zf.write(file_path, arcname=file_path.name)
+                    logger.debug(f"repackage_qgz: added {file_path.name}")
+
+        result = buffer.getvalue()
+        logger.info(
+            f"repackage_qgz: created new .qgz ({len(result)} bytes) "
+            f"from {self.temp_dir}"
+        )
+        return result

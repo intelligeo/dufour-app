@@ -49,6 +49,7 @@ class LayerRecord:
     error: Optional[str] = None
     table_name: str = ''        # populated after feature-table extraction
     features_count: int = 0
+    qgs_layer_id: str = ''      # QGIS layer id from .qgs XML (needed for datasource rewrite)
 
 
 # Alias so existing callers that import MigrationResult still work
@@ -119,154 +120,197 @@ class ProjectMigrator:
         logger.info(f"Migrating project: {project_name}")
 
         # ── 1. Parse .qgz ────────────────────────────────────────────
-        with QGZParser(qgz_path) as parser:
+        # Keep the parser open for the whole migration so we can rewrite
+        # datasources and repackage the .qgz at the end (qgis-cloud approach).
+        parser = QGZParser(qgz_path)
+        try:
             parser.extract()
             parser.parse_xml()
             project_info = parser.get_project_info()
 
-        logger.info(
-            f"Parsed '{project_info.title}': "
-            f"{len(project_info.layers)} layers, CRS={project_info.crs}"
-        )
-
-        # ── 2. Build initial LayerRecord list ────────────────────────
-        layer_records: List[LayerRecord] = [
-            LayerRecord(
-                layer_name=li.name,
-                layer_type=li.layer_type or 'unknown',
-                geometry_type=li.geometry_type or '',
-                source_type=li.source_type or 'unknown',
-                datasource=li.datasource or '',
-                crs=li.crs or project_info.crs or 'EPSG:4326',
+            logger.info(
+                f"Parsed '{project_info.title}': "
+                f"{len(project_info.layers)} layers, CRS={project_info.crs}"
             )
-            for li in project_info.layers
-        ]
 
-        # ── 3. Enrich from companion files ───────────────────────────
-        companion_map: Dict[str, Path] = {}
-        if companion_files:
-            companion_map = {
-                cf.name.lower(): cf
-                for cf in companion_files
-                if cf.exists()
-            }
-            self._enrich_from_companions(layer_records, companion_map)
-
-        # ── 4. Create per-project schema ─────────────────────────────
-        proj_schema = _schema_name(project_name)
-        self._create_schema(proj_schema)
-
-        # ── 5. Create project / project_layers tables in schema ──────
-        self._create_schema_tables(proj_schema)
-
-        # ── 6. Extract feature tables for vector layers ───────────────
-        extractor = LayerExtractor(project_name=project_name, engine=self.engine)
-
-        EXTRACTABLE_SOURCE_TYPES = {'gpkg', 'shp', 'geojson', 'fgb'}
-
-        for rec in layer_records:
-            # Accept 'vector' or layers where source_type suggests vector data
-            is_vector = (
-                rec.layer_type == 'vector'
-                or rec.source_type in EXTRACTABLE_SOURCE_TYPES
-            )
-            if not is_vector or not rec.datasource:
-                logger.debug(
-                    f"Skipping layer '{rec.layer_name}': "
-                    f"layer_type={rec.layer_type!r}, source_type={rec.source_type!r}, "
-                    f"has_datasource={bool(rec.datasource)}"
+            # ── 2. Build initial LayerRecord list (preserving qgs_layer_id) ──
+            layer_records: List[LayerRecord] = [
+                LayerRecord(
+                    layer_name=li.name,
+                    layer_type=li.layer_type or 'unknown',
+                    geometry_type=li.geometry_type or '',
+                    source_type=li.source_type or 'unknown',
+                    datasource=li.datasource or '',
+                    crs=li.crs or project_info.crs or 'EPSG:4326',
+                    qgs_layer_id=li.id,
                 )
-                continue
+                for li in project_info.layers
+            ]
 
-            # Find matching companion file
-            companion_path = self._resolve_companion(rec.datasource, companion_map)
-            if companion_path is None:
-                ds_snippet = (rec.datasource or '')[:80]
-                logger.info(
-                    f"No companion for layer '{rec.layer_name}' "
-                    f"(datasource={ds_snippet!r}, "
-                    f"available={list(companion_map.keys())}) — skipping table"
+            # ── 3. Enrich from companion files ───────────────────────────
+            companion_map: Dict[str, Path] = {}
+            if companion_files:
+                companion_map = {
+                    cf.name.lower(): cf
+                    for cf in companion_files
+                    if cf.exists()
+                }
+                self._enrich_from_companions(layer_records, companion_map)
+
+            # ── 4. Create per-project schema ─────────────────────────────
+            proj_schema = _schema_name(project_name)
+            self._create_schema(proj_schema)
+
+            # ── 5. Create project / project_layers tables in schema ──────
+            self._create_schema_tables(proj_schema)
+
+            # ── 6. Extract feature tables for vector layers ───────────────
+            extractor = LayerExtractor(project_name=project_name, engine=self.engine)
+
+            EXTRACTABLE_SOURCE_TYPES = {'gpkg', 'shp', 'geojson', 'fgb'}
+
+            for rec in layer_records:
+                # Accept 'vector' or layers where source_type suggests vector data
+                is_vector = (
+                    rec.layer_type == 'vector'
+                    or rec.source_type in EXTRACTABLE_SOURCE_TYPES
                 )
-                continue
+                if not is_vector or not rec.datasource:
+                    logger.debug(
+                        f"Skipping layer '{rec.layer_name}': "
+                        f"layer_type={rec.layer_type!r}, source_type={rec.source_type!r}, "
+                        f"has_datasource={bool(rec.datasource)}"
+                    )
+                    continue
 
-            # Build a minimal LayerInfo-compatible object for the extractor
-            class _LI:
-                name = rec.layer_name
-                source_type = rec.source_type
-                layer_type = rec.layer_type
+                # Find matching companion file
+                companion_path = self._resolve_companion(rec.datasource, companion_map)
+                if companion_path is None:
+                    ds_snippet = (rec.datasource or '')[:80]
+                    logger.info(
+                        f"No companion for layer '{rec.layer_name}' "
+                        f"(datasource={ds_snippet!r}, "
+                        f"available={list(companion_map.keys())}) — skipping table"
+                    )
+                    continue
 
-            # Determine fiona open kwargs (support GPKG sub-layers)
-            fiona_layer: Optional[str] = None
-            if '|layername=' in rec.datasource:
-                fiona_layer = rec.datasource.split('|layername=')[1].split('|')[0]
+                # Build a minimal LayerInfo-compatible object for the extractor
+                class _LI:
+                    name = rec.layer_name
+                    source_type = rec.source_type
+                    layer_type = rec.layer_type
 
-            # Determine SRID from fiona source (preserve original, no reprojection)
-            fiona_srid: int = self._srid_from_companion(companion_path, fiona_layer)
+                # Determine fiona open kwargs (support GPKG sub-layers)
+                fiona_layer: Optional[str] = None
+                if '|layername=' in rec.datasource:
+                    fiona_layer = rec.datasource.split('|layername=')[1].split('|')[0]
 
-            # Build a fiona path string (for GPKG: "file.gpkg|layername=xx")
-            if fiona_layer:
-                fiona_path_str = f"{companion_path}|layername={fiona_layer}"
-            else:
-                fiona_path_str = str(companion_path)
+                # Determine SRID from fiona source (preserve original, no reprojection)
+                fiona_srid: int = self._srid_from_companion(companion_path, fiona_layer)
 
-            try:
-                # Open via fiona to get schema, then call extractor internals
-                open_kwargs: dict = {'path': str(companion_path)}
-                if fiona_layer:
-                    open_kwargs['layer'] = fiona_layer
+                try:
+                    # Open via fiona to get schema, then call extractor internals
+                    open_kwargs: dict = {'path': str(companion_path)}
+                    if fiona_layer:
+                        open_kwargs['layer'] = fiona_layer
 
-                with fiona.open(**open_kwargs) as src:
-                    table_name = extractor._generate_table_name(rec.layer_name)
-                    geom_type = src.schema.get('geometry', 'Geometry') or 'Geometry'
-                    # Normalise 3D types (e.g. '3D MultiPolygon' → 'MultiPolygon')
-                    geom_type = geom_type.replace('3D ', '').split()[-1]
+                    with fiona.open(**open_kwargs) as src:
+                        table_name = extractor._generate_table_name(rec.layer_name)
+                        geom_type = src.schema.get('geometry', 'Geometry') or 'Geometry'
+                        # Normalise 3D types (e.g. '3D MultiPolygon' → 'MultiPolygon')
+                        geom_type = geom_type.replace('3D ', '').split()[-1]
 
-                    extractor._create_postgis_table(
-                        table_name=table_name,
-                        geometry_type=geom_type,
-                        srid=fiona_srid,
-                        properties=src.schema['properties'],
-                        schema=proj_schema,
+                        extractor._create_postgis_table(
+                            table_name=table_name,
+                            geometry_type=geom_type,
+                            srid=fiona_srid,
+                            properties=src.schema['properties'],
+                            schema=proj_schema,
+                        )
+
+                        # No transformation — SRID is kept as-is
+                        inserted = extractor._insert_features(
+                            src=src,
+                            table_name=table_name,
+                            transformer=None,
+                            schema=proj_schema,
+                            srid=fiona_srid,
+                        )
+
+                    rec.table_name = table_name
+                    rec.features_count = inserted
+                    if not rec.geometry_type:
+                        rec.geometry_type = geom_type
+                    logger.info(
+                        f"Extracted '{rec.layer_name}' → "
+                        f"{proj_schema}.{table_name} ({inserted} features, SRID={fiona_srid})"
                     )
 
-                    # No transformation — SRID is kept as-is
-                    inserted = extractor._insert_features(
-                        src=src,
-                        table_name=table_name,
-                        transformer=None,
-                        schema=proj_schema,
-                        srid=fiona_srid,
+                except Exception as exc:
+                    rec.success = False
+                    rec.error = str(exc)
+                    logger.error(
+                        f"Failed to extract feature table for '{rec.layer_name}': {exc}"
                     )
 
-                rec.table_name = table_name
-                rec.features_count = inserted
-                if not rec.geometry_type:
-                    rec.geometry_type = geom_type
+            # ── 7. Rewrite .qgs datasources to PostGIS (qgis-cloud approach) ─
+            # For every successfully migrated vector layer, update the XML
+            # datasource so QGIS Server can find the data in PostGIS.
+            rewrite_count = 0
+            for rec in layer_records:
+                if not rec.qgs_layer_id or not rec.table_name or not rec.success:
+                    continue
+                try:
+                    # Derive SRID from rec.crs ("EPSG:2056" → 2056)
+                    srid = 2056
+                    if rec.crs and ':' in rec.crs:
+                        try:
+                            srid = int(rec.crs.split(':')[-1])
+                        except ValueError:
+                            pass
+
+                    pg_datasource = extractor.generate_postgis_datasource(
+                        table_name=rec.table_name,
+                        geometry_type=rec.geometry_type or 'Geometry',
+                        srid=srid,
+                        schema=proj_schema,
+                    )
+                    parser.update_layer_datasource(rec.qgs_layer_id, pg_datasource)
+                    rewrite_count += 1
+                    logger.info(
+                        f"Rewrote datasource for layer '{rec.layer_name}' "
+                        f"(id={rec.qgs_layer_id}) → {proj_schema}.{rec.table_name}"
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"Could not rewrite datasource for layer '{rec.layer_name}': {exc}"
+                    )
+
+            # ── 8. Save modified .qgs and re-package as .qgz ─────────────
+            # Even if no datasources were rewritten we still round-trip through
+            # the ZIP to normalise the archive (safe no-op).
+            if rewrite_count > 0:
+                parser.save_modified_qgs(parser.qgs_path)
                 logger.info(
-                    f"Extracted '{rec.layer_name}' → "
-                    f"{proj_schema}.{table_name} ({inserted} features, SRID={fiona_srid})"
+                    f"Saved modified .qgs with {rewrite_count} PostGIS datasource rewrites"
                 )
 
-            except Exception as exc:
-                rec.success = False
-                rec.error = str(exc)
-                logger.error(
-                    f"Failed to extract feature table for '{rec.layer_name}': {exc}"
-                )
+            modified_qgz_bytes = parser.repackage_qgz()
+            logger.info(
+                f"Repackaged .qgz: {len(modified_qgz_bytes)} bytes "
+                f"({rewrite_count} datasource(s) rewritten)"
+            )
 
-        # ── 7. Per-schema project_layers table is intentionally NOT populated:
-        #       public.project_layers (written by main.py) is the single source
-        #       of truth for layer metadata.  The per-schema schema contains only
-        #       the lyr_* feature tables (PostGIS geometries).
-        # ─────────────────────────────────────────────────────────────────────
+        finally:
+            # Always clean up the temp extraction directory
+            parser.cleanup()
 
-        # ── 8. Return ─────────────────────────────────────────────────
-        qgz_bytes = qgz_path.read_bytes()
+        # ── 9. Return ─────────────────────────────────────────────────
         logger.info(
             f"Migration done for '{project_name}': schema={proj_schema}, "
-            f"{len(qgz_bytes)} bytes, {len(layer_records)} layer records"
+            f"{len(modified_qgz_bytes)} bytes, {len(layer_records)} layer records"
         )
-        return project_info, layer_records, qgz_bytes, proj_schema
+        return project_info, layer_records, modified_qgz_bytes, proj_schema
 
     # ------------------------------------------------------------------
     # Schema / table creation helpers
