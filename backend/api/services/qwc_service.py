@@ -152,8 +152,18 @@ class QWCService:
                 bbox_bounds = self._extent_to_wgs84(extent, native_crs)
                 initial_bbox_3857 = self._extent_to_3857(bbox_bounds)
 
-                # Let QWC2 load sublayers from GetCapabilities (avoids stale/mismatched names)
-                sublayers: list = []
+                # Build sublayer list from project catalog so QWC2 shows the layer tree immediately.
+                # QWC2 interprets sublayers:[] as "no sublayers"; omitting the key or providing
+                # actual sublayer entries allows the layer tree to be populated.
+                sublayers = self._get_project_sublayers(project_name)
+
+                # If DB catalog is empty, try fetching sublayers directly from QGIS Server GetCapabilities.
+                # We use the internal QGIS Server URL (not the public API proxy) to avoid network roundtrips.
+                if not sublayers:
+                    qgis_wms_url = (
+                        f"http://localhost/qgis?MAP=/data/projects/{project_name}.qgz"
+                    )
+                    sublayers = await self._fetch_sublayers_from_wms(qgis_wms_url)
 
                 item = {
                     "id": project_name,
@@ -176,15 +186,18 @@ class QWCService:
                     "printResolutions": [150, 300, 600],
                     "searchProviders": ["coordinates", "geoadmin"],
                     "backgroundLayers": [
+                        {"name": "swisstopo_national"},
                         {"name": "arcgis_world_imagery"},
                         {"name": "arcgis_world_topo"},
-                        {"name": "swisstopo_national"},
                         {"name": "osm"}
                     ],
-                    "sublayers": sublayers,
                     "thumbnail": "img/mapthumbs/default.jpg",
                     "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
                 }
+                # Only include sublayers if we have actual data — QWC2 uses sublayers:[] as
+                # "no sublayers" which hides the layer tree entirely.
+                if sublayers:
+                    item["sublayers"] = sublayers
                 items.append(item)
             except Exception as e:
                 logger.warning(f"Failed to build theme for project {project.get('name')}: {e}")
@@ -218,12 +231,11 @@ class QWCService:
                     "printResolutions": [150, 300, 600],
                     "searchProviders": ["coordinates", "geoadmin"],
                     "backgroundLayers": [
+                        {"name": "swisstopo_national"},
                         {"name": "arcgis_world_imagery"},
                         {"name": "arcgis_world_topo"},
-                        {"name": "swisstopo_national"},
                         {"name": "osm"}
                     ],
-                    "sublayers": [],
                     "thumbnail": "img/mapthumbs/default.jpg"
                 }
                 items.append(item)
@@ -247,12 +259,11 @@ class QWCService:
                 "printResolutions": [150, 300, 600],
                 "searchProviders": ["coordinates", "geoadmin"],
                 "backgroundLayers": [
+                    {"name": "swisstopo_national"},
                     {"name": "arcgis_world_imagery"},
                     {"name": "arcgis_world_topo"},
-                    {"name": "swisstopo_national"},
                     {"name": "osm"}
                 ],
-                "sublayers": [],
                 "thumbnail": "img/mapthumbs/default.jpg",
                 "additionalMouseCrs": ["EPSG:2056", "EPSG:4326", "EPSG:21781", "MGRS"]
             })
@@ -295,8 +306,28 @@ class QWCService:
                 10000, 5000, 2500, 1000, 500, 250]
 
     def _get_qwc2_background_layers(self) -> List[Dict[str, Any]]:
-        """Background layers in full QWC2 themes.json format"""
+        """Background layers in full QWC2 themes.json format.
+
+        swisstopo tiles are fetched via the nginx /wmts/ reverse-proxy so the
+        browser never makes a cross-origin request to wmts.geo.admin.ch.
+        URL template follows the official docs.geo.admin.ch REST schema:
+          /1.0.0/<LayerBodId>/default/<Time>/<TileMatrixSet>/<z>/<x>/<y>.<ext>
+        For EPSG:3857 the TileMatrixSet identifier is '3857_26'.
+        Reference: https://docs.geo.admin.ch/visualize-data/wmts.html
+        """
         return [
+            {
+                "name": "swisstopo_national",
+                "title": "swisstopo Maps",
+                "type": "xyz",
+                # Routed via nginx /wmts/ → wmts.geo.admin.ch (avoids CORS, adds caching)
+                "url": "/wmts/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
+                "projection": "EPSG:3857",
+                "minZoom": 0,
+                "maxZoom": 17,
+                "thumbnail": "img/mapthumbs/swisstopo.jpg",
+                "attribution": "© swisstopo"
+            },
             {
                 "name": "arcgis_world_imagery",
                 "title": "ArcGIS World Imagery",
@@ -314,17 +345,6 @@ class QWCService:
                 "projection": "EPSG:3857",
                 "thumbnail": "arcgis_topo.jpg",
                 "attribution": "Esri, HERE, Garmin, OpenStreetMap contributors"
-            },
-            {
-                "name": "swisstopo_national",
-                "title": "swisstopo Maps",
-                "type": "xyz",
-                "url": "/wmts/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
-                "projection": "EPSG:3857",
-                "minZoom": 0,
-                "maxZoom": 17,
-                "thumbnail": "swisstopo.jpg",
-                "attribution": "swisstopo"
             },
             {
                 "name": "osm",
@@ -352,6 +372,62 @@ class QWCService:
     
     
     # ============ Private Helper Methods ============
+
+    async def _fetch_sublayers_from_wms(self, wms_url: str) -> List[Dict[str, Any]]:
+        """
+        Fetch WMS GetCapabilities and build a QWC2-compatible sublayer list.
+        Follows the same logic as QWC2's themesConfig.py:
+          - skip the root layer (project name)
+          - return its direct children as sublayer entries
+        Returns [] on any error so theme generation never fails.
+        """
+        try:
+            import httpx
+            import xml.etree.ElementTree as ET
+
+            cap_url = wms_url + "?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities"
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(cap_url)
+                resp.raise_for_status()
+
+            ns = {"wms": "http://www.opengis.net/wms"}
+            root = ET.fromstring(resp.text)
+
+            # Find the Capability/Layer (root layer = project)
+            cap_el = root.find(".//Capability")
+            if cap_el is None:
+                return []
+            root_layer = cap_el.find("Layer")  # no namespace in QGIS 3 output
+            if root_layer is None:
+                # Try with namespace
+                root_layer = cap_el.find("wms:Layer", ns)
+            if root_layer is None:
+                return []
+
+            def _parse_layer(el) -> Dict[str, Any]:
+                name = (el.findtext("Name") or el.findtext("wms:Name", namespaces=ns) or "").strip()
+                title = (el.findtext("Title") or el.findtext("wms:Title", namespaces=ns) or name).strip()
+                queryable = el.get("queryable", "0") == "1"
+                children_els = el.findall("Layer") or el.findall("wms:Layer", ns)
+                children = [_parse_layer(c) for c in children_els]
+                entry: Dict[str, Any] = {
+                    "name": name,
+                    "title": title,
+                    "visibility": True,
+                    "queryable": queryable,
+                    "expanded": False,
+                }
+                if children:
+                    entry["sublayers"] = children
+                return entry
+
+            # QWC2 skips the root layer and uses its children directly
+            child_layers = root_layer.findall("Layer") or root_layer.findall("wms:Layer", ns)
+            return [_parse_layer(c) for c in child_layers]
+
+        except Exception as exc:
+            logger.warning(f"_fetch_sublayers_from_wms({wms_url!r}) failed: {exc}")
+            return []
 
     def _get_project_sublayers(self, project_name: str) -> List[Dict[str, Any]]:
         """

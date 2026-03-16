@@ -23,12 +23,11 @@
         "printResolutions": [150, 300, 600],
         "searchProviders": ["coordinates", "geoadmin"],
         "backgroundLayers": [
+          {"name": "swisstopo_national"},
           {"name": "arcgis_world_imagery"},
           {"name": "arcgis_world_topo"},
-          {"name": "swisstopo_national"},
           {"name": "osm"}
         ],
-        "sublayers": [],
         "thumbnail": "img/mapthumbs/default.jpg",
         "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
       }
@@ -51,6 +50,17 @@
     ],
     "backgroundLayers": [
       {
+        "name": "swisstopo_national",
+        "title": "swisstopo Maps",
+        "type": "xyz",
+        "url": "/wmts/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
+        "projection": "EPSG:3857",
+        "minZoom": 0,
+        "maxZoom": 17,
+        "thumbnail": "img/mapthumbs/swisstopo.jpg",
+        "attribution": "© swisstopo"
+      },
+      {
         "name": "arcgis_world_imagery",
         "title": "ArcGIS World Imagery",
         "type": "xyz",
@@ -67,17 +77,6 @@
         "projection": "EPSG:3857",
         "thumbnail": "arcgis_topo.jpg",
         "attribution": "Esri, HERE, Garmin, OpenStreetMap contributors"
-      },
-      {
-        "name": "swisstopo_national",
-        "title": "swisstopo Maps",
-        "type": "xyz",
-        "url": "/wmts/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
-        "projection": "EPSG:3857",
-        "minZoom": 0,
-        "maxZoom": 17,
-        "thumbnail": "https://map.geo.admin.ch/v1.61.3/assets/ch.swisstopo.pixelkarte-farbe-Bq907_qJ.png",
-        "attribution": "swisstopo"
       },
       {
         "name": "osm",
