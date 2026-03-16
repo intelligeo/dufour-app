@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 import os
+import re
 import logging
 from pathlib import Path
 import tempfile
@@ -1698,9 +1699,30 @@ async def wms_proxy(project_name: str, request: Request):
             else:
                 return_status = response.status_code
             
+            # For GetCapabilities responses: rewrite the internal OnlineResource URL
+            # QGIS Server embeds http://localhost/qgis?MAP=... in the XML,
+            # which is not reachable from the browser. Replace it with the public
+            # proxy URL /api/projects/{project_name}/wms so QWC2 uses the correct endpoint.
+            response_content = response.content
+            req_type = query_params.get('REQUEST', '').upper()
+            if req_type == 'GETCAPABILITIES' and 'xml' in content_type.lower():
+                try:
+                    caps_text = response.text
+                    # Replace all occurrences of the internal QGIS Server URL
+                    # Pattern: http://localhost.../qgis?MAP=...  (any variant)
+                    public_wms_url = f"/api/projects/{project_name}/wms"
+                    caps_text = re.sub(
+                        r'https?://localhost[^"\'<>]*',
+                        public_wms_url,
+                        caps_text
+                    )
+                    response_content = caps_text.encode('utf-8')
+                except Exception as rewrite_err:
+                    logger.warning(f"WMS proxy: failed to rewrite OnlineResource: {rewrite_err}")
+            
             # Return QGIS Server response with correct Content-Type
             return Response(
-                content=response.content,
+                content=response_content,
                 status_code=return_status,
                 headers={
                     'Content-Type': content_type,

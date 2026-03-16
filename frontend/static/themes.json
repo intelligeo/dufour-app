@@ -75,6 +75,8 @@
         "url": "https://wmts.geo.admin.ch/EPSG/3857/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/{z}/{x}/{y}.jpeg",
         "projection": "EPSG:3857",
         "tileSize": [256, 256],
+        "minZoom": 0,
+        "maxZoom": 17,
         "thumbnail": "https://map.geo.admin.ch/v1.61.3/assets/ch.swisstopo.pixelkarte-farbe-Bq907_qJ.png",
         "attribution": "swisstopo"
       },
