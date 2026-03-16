@@ -19,7 +19,7 @@
       "name": "swisstopo",
       "title": "swisstopo National Map",
       "type": "wmts",
-      "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg",
+      "url": "https://wmts.geo.admin.ch/EPSG/3857/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/{TileMatrix}/{TileRow}/{TileCol}.jpeg",
       "tileMatrixSet": "3857",
       "originX": -20037508.34,
       "originY": 20037508.34,

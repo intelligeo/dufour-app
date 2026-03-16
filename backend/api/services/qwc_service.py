@@ -315,7 +315,7 @@ class QWCService:
                 "name": "swisstopo_national",
                 "title": "swisstopo Maps",
                 "type": "xyz",
-                "url": "/wmts/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
+                "url": "https://wmts.geo.admin.ch/EPSG/3857/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/{z}/{x}/{y}.jpeg",
                 "projection": "EPSG:3857",
                 "tileSize": [256, 256],
                 "thumbnail": "swisstopo.jpg",
