@@ -333,11 +333,12 @@ async def upload_and_migrate_project(
     description: Optional[str] = Form(None, description="Project description"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
-    data_files: List[UploadFile] = File(
-        default=[],
+    data_files: Optional[List[UploadFile]] = File(
+        default=None,
         description="Optional companion data files referenced by the project "
                     "(.gpkg, .geojson, .shp, .fgb, .csv). "
-                    "Can be sent once per file; one or many files accepted."
+                    "Can be sent once per file; one or many files accepted. "
+                    "Omit the field entirely (or do not include -F data_files) when there are no companion files."
     )
 ):
     """
