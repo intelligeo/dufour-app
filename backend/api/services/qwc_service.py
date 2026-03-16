@@ -137,18 +137,23 @@ class QWCService:
         for project in db_projects:
             try:
                 project_name = project['name']
+                native_crs = project.get('crs') or 'EPSG:3857'
                 extent = project.get('extent') or [-180, -85, 180, 85]
-                map_crs = project.get('crs') or 'EPSG:3857'
+
+                # Always serve themes in EPSG:3857 so background tile layers
+                # (ArcGIS, swisstopo, OSM) and WMS layers share the same CRS.
+                # QGIS Server reprojects WMS requests transparently.
+                map_crs = 'EPSG:3857'
 
                 # Build QWC2-compatible WMS URL
                 wms_url = f"{api_base_url}/api/projects/{project_name}/wms"
 
-                # Determine bbox in EPSG:4326 for QWC2
-                # If project CRS is EPSG:2056 (Swiss), extent is in Swiss coords → reproject to WGS84
-                bbox_bounds = self._extent_to_wgs84(extent, map_crs)
+                # Reproject extent to WGS84 for bbox, then to EPSG:3857 for initialBbox
+                bbox_bounds = self._extent_to_wgs84(extent, native_crs)
+                initial_bbox_3857 = self._extent_to_3857(bbox_bounds)
 
-                # Build sublayer list from migrated PostGIS layers (project_layers catalog)
-                sublayers = self._get_project_sublayers(project_name)
+                # Let QWC2 load sublayers from GetCapabilities (avoids stale/mismatched names)
+                sublayers: list = []
 
                 item = {
                     "id": project_name,
@@ -164,7 +169,7 @@ class QWCService:
                     },
                     "initialBbox": {
                         "crs": map_crs,
-                        "bounds": extent
+                        "bounds": initial_bbox_3857
                     },
                     "scales": self._default_scales_full(),
                     "printScales": self._default_scales(),
@@ -176,9 +181,6 @@ class QWCService:
                         {"name": "swisstopo_national"},
                         {"name": "osm"}
                     ],
-                    # sublayers: pre-populated from project_layers catalog so QWC2
-                    # LayerTree has an initial list before GetCapabilities completes.
-                    # QWC2 will override this with the real GetCapabilities response.
                     "sublayers": sublayers,
                     "thumbnail": "img/mapthumbs/default.jpg",
                     "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
@@ -317,9 +319,8 @@ class QWCService:
                 "name": "swisstopo_national",
                 "title": "swisstopo Maps",
                 "type": "xyz",
-                "url": "/wmts/EPSG/3857/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/{z}/{x}/{y}.jpeg",
+                "url": "/wmts/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
                 "projection": "EPSG:3857",
-                "tileSize": [256, 256],
                 "minZoom": 0,
                 "maxZoom": 17,
                 "thumbnail": "swisstopo.jpg",
@@ -422,6 +423,25 @@ class QWCService:
         except Exception as e:
             logger.warning(f"_extent_to_wgs84 failed for {src_crs}: {e}")
             return [-180, -85, 180, 85]
+
+    def _extent_to_3857(self, extent_4326: list) -> List[float]:
+        """
+        Convert extent [xmin, ymin, xmax, ymax] from EPSG:4326 to EPSG:3857.
+        Used to build initialBbox so QWC2 opens in the correct position.
+        Falls back to world bounds on error.
+        """
+        try:
+            from pyproj import Transformer
+            transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+            xmin, ymin = transformer.transform(extent_4326[0], extent_4326[1])
+            xmax, ymax = transformer.transform(extent_4326[2], extent_4326[3])
+            return [
+                round(xmin, 2), round(ymin, 2),
+                round(xmax, 2), round(ymax, 2)
+            ]
+        except Exception as e:
+            logger.warning(f"_extent_to_3857 failed: {e}")
+            return [-20037508, -20037508, 20037508, 20037508]
 
     def _get_text(self, root: ET.Element, xpath: str) -> Optional[str]:
         """Safely get text from XML element"""
