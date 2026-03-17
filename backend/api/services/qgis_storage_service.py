@@ -237,7 +237,7 @@ class QGISStorageService:
                     'schema_name': row[6],
                     'extent': [row[7], row[8], row[9], row[10]] if row[7] else None,
                     'created_at': row[11],
-                    'modified_at': row[12],
+                    'updated_at': row[12],
                     'owner': row[13],
                     'wms_url': f"/api/projects/{row[1]}/wms"
                 })

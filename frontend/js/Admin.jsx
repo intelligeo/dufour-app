@@ -656,6 +656,7 @@ function AdminProjects() {
     const [projects, setProjects] = useState([]);
     const [busy, setBusy]         = useState(true);
     const [showUpload, setShowUpload] = useState(false);
+    const [healthMap, setHealthMap] = useState({});
 
     async function load() {
         setBusy(true);
@@ -672,6 +673,16 @@ function AdminProjects() {
         catch (ex) { alert(ex.message); }
     }
 
+    async function checkHealth(name) {
+        setHealthMap(m => ({...m, [name]: 'loading'}));
+        try {
+            const h = await apiFetch(`/api/user/projects/${encodeURIComponent(name)}/health`);
+            setHealthMap(m => ({...m, [name]: h}));
+        } catch (ex) {
+            setHealthMap(m => ({...m, [name]: {status: 'error', checks: {error: ex.message}}}));
+        }
+    }
+
     return (
         <div>
             <div style={{padding: '16px 24px 0', display: 'flex', justifyContent: 'flex-end'}}>
@@ -681,39 +692,52 @@ function AdminProjects() {
                 <table style={S.table}>
                     <thead>
                         <tr>
-                            {['Nome','Titolo','CRS','Dimensione','Aggiornato','Azioni'].map(h =>
+                            {['Nome','Titolo','Proprietario','CRS','Dimensione','Aggiornato','Azioni'].map(h =>
                                 <th key={h} style={S.th}>{h}</th>)}
                         </tr>
                     </thead>
                     <tbody>
                         {busy && (
-                            <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
+                            <tr><td colSpan={7} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
                                 Caricamento…
                             </td></tr>
                         )}
-                        {!busy && projects.map(p => (
-                            <tr key={p.name}>
-                                <td style={S.td}>
-                                    <a href={`/?t=${encodeURIComponent(p.name)}`}
-                                       style={{color:'#7cb9e8', textDecoration:'none', fontWeight:600}}>
-                                        {p.name}
-                                    </a>
-                                </td>
-                                <td style={S.td}>{p.title || '—'}</td>
-                                <td style={S.td}>{p.crs  || '—'}</td>
-                                <td style={S.td}>{p.file_size ? `${Math.round(p.file_size/1024)} KB` : '—'}</td>
-                                <td style={S.td}>{p.updated_at ? p.updated_at.slice(0,10) : '—'}</td>
-                                <td style={{...S.td, whiteSpace:'nowrap'}}>
-                                    <Btn style={{...S.btnSecondary, ...S.btnSmall, marginRight:4}}
-                                         onClick={() => window.open(`/api/projects/${encodeURIComponent(p.name)}/wms?SERVICE=WMS&REQUEST=GetCapabilities`, '_blank')}
-                                         title="WMS GetCapabilities">🌐 WMS</Btn>
-                                    <Btn style={{...S.btnDanger, ...S.btnSmall}}
-                                         onClick={() => deleteProject(p.name)}>🗑 Elimina</Btn>
-                                </td>
-                            </tr>
-                        ))}
+                        {!busy && projects.map(p => {
+                            const h = healthMap[p.name];
+                            return (
+                                <tr key={p.name}>
+                                    <td style={S.td}>
+                                        <a href={`/?t=${encodeURIComponent(p.name)}`}
+                                           style={{color:'#7cb9e8', textDecoration:'none', fontWeight:600}}>
+                                            {p.name}
+                                        </a>
+                                    </td>
+                                    <td style={S.td}>{p.title || '—'}</td>
+                                    <td style={S.td}>{p.owner || <span style={{color:'#9ba3af', fontStyle:'italic'}}>—</span>}</td>
+                                    <td style={S.td}>{p.crs  || '—'}</td>
+                                    <td style={S.td}>{p.file_size ? `${Math.round(p.file_size/1024)} KB` : '—'}</td>
+                                    <td style={S.td}>{p.updated_at ? String(p.updated_at).slice(0,10) : '—'}</td>
+                                    <td style={{...S.td, whiteSpace:'nowrap'}}>
+                                        <div style={{display:'flex', gap:4, flexWrap:'wrap', alignItems:'center'}}>
+                                            <Btn style={{...S.btnSecondary, ...S.btnSmall}}
+                                                 onClick={() => window.open(`/api/projects/${encodeURIComponent(p.name)}/wms?SERVICE=WMS&REQUEST=GetCapabilities`, '_blank')}
+                                                 title="WMS GetCapabilities">🌐 WMS</Btn>
+                                            <Btn style={{...S.btnDanger, ...S.btnSmall}}
+                                                 onClick={() => deleteProject(p.name)}>🗑 Elimina</Btn>
+                                            {!h && (
+                                                <Btn style={{...S.btnSecondary, ...S.btnSmall}}
+                                                     onClick={() => checkHealth(p.name)}
+                                                     title="Health check">🔍</Btn>
+                                            )}
+                                            {h === 'loading' && <span style={{fontSize:12,color:'#9ba3af'}}>…</span>}
+                                            {h && h !== 'loading' && <HealthBadge health={h} />}
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                         {!busy && projects.length === 0 && (
-                            <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
+                            <tr><td colSpan={7} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
                                 Nessun progetto. Usa il pulsante "Carica progetto" per iniziare.
                             </td></tr>
                         )}
