@@ -928,6 +928,7 @@ async def diagnose_project(project_name: str):
     """Temporary diagnostic endpoint: inspect .qgz datasources and PostGIS tables."""
     import zipfile, io, xml.etree.ElementTree as ET
     result = {"project": project_name, "layers": [], "tables": [], "errors": []}
+    qgz_bytes = None
 
     # 1. Inspect .qgz from DB
     try:
@@ -966,11 +967,18 @@ async def diagnose_project(project_name: str):
     except Exception as e:
         result["errors"].append(f"schema check: {e}")
 
-    # 3. Check QGIS Server connectivity
+    # 3. Check QGIS Server connectivity — ensure .qgz is on disk first
     try:
         import httpx
         temp_dir = Path(tempfile.gettempdir()) / 'dufour_qgis_projects'
+        temp_dir.mkdir(exist_ok=True)
         temp_path = temp_dir / f"{project_name}.qgz"
+
+        # Write .qgz to disk if not already cached (same as wms_proxy)
+        if qgz_bytes and (not temp_path.exists() or temp_path.stat().st_size != len(qgz_bytes)):
+            temp_path.write_bytes(qgz_bytes)
+            result["qgz_written_to_disk"] = True
+
         result["qgz_on_disk"] = temp_path.exists()
         if temp_path.exists():
             result["qgz_disk_size"] = temp_path.stat().st_size
