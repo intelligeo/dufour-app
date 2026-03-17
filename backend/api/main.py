@@ -1845,6 +1845,236 @@ async def wms_proxy(project_name: str, request: Request):
         raise HTTPException(status_code=500, detail=f"WMS proxy error: {str(e)}")
 
 
+# ==================== AUTH ENDPOINTS ====================
+
+from fastapi.security import OAuth2PasswordRequestForm
+from services.auth_service import (
+    authenticate_user, create_access_token,
+    get_current_user, require_admin,
+    hash_password, _get_user_by_username,
+)
+
+
+@app.post("/api/auth/login", tags=["auth"])
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    # Login
+    Returns a JWT Bearer token.  Use it in the `Authorization: Bearer <token>` header.
+    """
+    user = authenticate_user(form_data.username, form_data.password)
+    token = create_access_token({"sub": user["id"], "role": user["role"],
+                                 "username": user["username"]})
+    return {
+        "access_token": token,
+        "token_type":   "bearer",
+        "role":         user["role"],
+        "username":     user["username"],
+    }
+
+
+@app.get("/api/auth/me", tags=["auth"])
+async def me(current_user=Depends(get_current_user)):
+    """Returns the profile of the currently authenticated user."""
+    return {k: v for k, v in current_user.items() if k != "password_hash"}
+
+
+# ==================== ADMIN ENDPOINTS ====================
+
+@app.get("/api/admin/users", tags=["admin"])
+async def admin_list_users(_=Depends(require_admin)):
+    """List all users (admin only)."""
+    from database.connection import db
+    from sqlalchemy import text as _t
+    with db.get_engine().connect() as conn:
+        rows = conn.execute(_t(
+            "SELECT id, username, email, role, is_active, created_at "
+            "FROM users ORDER BY created_at"
+        )).fetchall()
+    return [
+        {"id": str(r[0]), "username": r[1], "email": r[2],
+         "role": r[3], "is_active": r[4],
+         "created_at": r[5].isoformat() if r[5] else None}
+        for r in rows
+    ]
+
+
+@app.post("/api/admin/users", tags=["admin"], status_code=201)
+async def admin_create_user(body: dict, _=Depends(require_admin)):
+    """
+    Create a new user (admin only).
+    Body: `{username, email, password, role}`
+    """
+    username = body.get("username", "").strip()
+    password = body.get("password", "").strip()
+    email    = body.get("email", "").strip()
+    role     = body.get("role", "user").strip()
+
+    if not username or not password:
+        raise HTTPException(400, "username and password are required")
+    if role not in ("admin", "user"):
+        raise HTTPException(400, "role must be 'admin' or 'user'")
+    if _get_user_by_username(username):
+        raise HTTPException(409, f"Username '{username}' already exists")
+
+    from database.connection import db
+    from sqlalchemy import text as _t
+    phash = hash_password(password)
+    with db.get_engine().connect() as conn:
+        row = conn.execute(_t(
+            "INSERT INTO users (username, email, password_hash, role) "
+            "VALUES (:u, :e, :ph, :r) RETURNING id"
+        ), {"u": username, "e": email, "ph": phash, "r": role}).fetchone()
+        conn.commit()
+    return {"id": str(row[0]), "username": username, "role": role}
+
+
+@app.patch("/api/admin/users/{user_id}", tags=["admin"])
+async def admin_update_user(user_id: str, body: dict, _=Depends(require_admin)):
+    """
+    Update a user (admin only).
+    Updatable fields: `email`, `role`, `is_active`, `password`.
+    """
+    from database.connection import db
+    from sqlalchemy import text as _t
+    sets, params = [], {"id": user_id}
+    if "email"     in body: sets.append("email = :email");     params["email"]     = body["email"]
+    if "role"      in body: sets.append("role = :role");       params["role"]      = body["role"]
+    if "is_active" in body: sets.append("is_active = :active"); params["active"]   = body["is_active"]
+    if "password"  in body:
+        sets.append("password_hash = :ph")
+        params["ph"] = hash_password(body["password"])
+    if not sets:
+        raise HTTPException(400, "Nothing to update")
+    sql = f"UPDATE users SET {', '.join(sets)} WHERE id = :id RETURNING id"
+    with db.get_engine().connect() as conn:
+        row = conn.execute(_t(sql), params).fetchone()
+        conn.commit()
+    if not row:
+        raise HTTPException(404, "User not found")
+    return {"updated": str(row[0])}
+
+
+@app.delete("/api/admin/users/{user_id}", tags=["admin"])
+async def admin_delete_user(user_id: str, current=Depends(require_admin)):
+    """Delete a user (admin only). Cannot delete yourself."""
+    if current["id"] == user_id:
+        raise HTTPException(400, "Cannot delete yourself")
+    from database.connection import db
+    from sqlalchemy import text as _t
+    with db.get_engine().connect() as conn:
+        conn.execute(_t("DELETE FROM users WHERE id = :id"), {"id": user_id})
+        conn.commit()
+    return {"deleted": user_id}
+
+
+@app.get("/api/admin/projects", tags=["admin"])
+async def admin_list_projects(_=Depends(require_admin)):
+    """List all projects with owner info (admin only)."""
+    projects = storage_service.list_projects()
+    return projects
+
+
+@app.delete("/api/admin/projects/{project_name}", tags=["admin"])
+async def admin_delete_project(project_name: str, _=Depends(require_admin)):
+    """Delete any project (admin only)."""
+    ok = storage_service.delete_project(project_name)
+    if not ok:
+        raise HTTPException(404, f"Project '{project_name}' not found")
+    return {"deleted": project_name}
+
+
+# ==================== USER ENDPOINTS ====================
+
+@app.get("/api/user/projects", tags=["user"])
+async def user_list_projects(current=Depends(get_current_user)):
+    """List projects owned by the current user."""
+    from database.connection import db
+    from sqlalchemy import text as _t
+    with db.get_engine().connect() as conn:
+        rows = conn.execute(_t("""
+            SELECT p.name, p.title, p.description, p.crs,
+                   p.extent_minx, p.extent_miny, p.extent_maxx, p.extent_maxy,
+                   p.qgz_size, p.created_at, p.updated_at
+            FROM projects p
+            JOIN users u ON p.user_id = u.id
+            WHERE u.id = :uid
+            ORDER BY p.updated_at DESC
+        """), {"uid": current["id"]}).fetchall()
+    return [
+        {
+            "name":        r[0], "title": r[1], "description": r[2], "crs": r[3],
+            "extent":      [r[4], r[5], r[6], r[7]] if r[4] is not None else None,
+            "file_size":   r[8],
+            "created_at":  r[9].isoformat()  if r[9]  else None,
+            "updated_at":  r[10].isoformat() if r[10] else None,
+            "wms_url":     f"/api/projects/{r[0]}/wms",
+            "thumbnail":   f"/api/projects/{r[0]}/thumbnail",
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/user/projects/{project_name}/health", tags=["user"])
+async def user_project_health(project_name: str, current=Depends(get_current_user)):
+    """
+    Health check for a single project:
+    - Verifies the project is in the DB
+    - Tests WMS GetCapabilities via the internal QGIS Server
+    Returns a structured status report.
+    """
+    from database.connection import db
+    from sqlalchemy import text as _t
+
+    # Check ownership (admins can check any project)
+    if current["role"] != "admin":
+        with db.get_engine().connect() as conn:
+            row = conn.execute(_t(
+                "SELECT 1 FROM projects p JOIN users u ON p.user_id = u.id "
+                "WHERE p.name = :n AND u.id = :uid"
+            ), {"n": project_name, "uid": current["id"]}).fetchone()
+        if not row:
+            raise HTTPException(404, "Project not found or not yours")
+
+    report = {"project": project_name, "checks": {}}
+
+    # 1. DB record
+    meta = storage_service.get_project_meta(project_name)
+    report["checks"]["db_record"] = "ok" if meta else "missing"
+    if not meta:
+        report["status"] = "error"
+        return report
+
+    # 2. Binary in DB
+    try:
+        qgz = storage_service.retrieve_qgz(project_name)
+        report["checks"]["qgz_binary"] = f"ok ({len(qgz)} bytes)" if qgz else "missing"
+    except Exception as e:
+        report["checks"]["qgz_binary"] = f"error: {e}"
+
+    # 3. WMS GetCapabilities
+    try:
+        temp_dir = Path(tempfile.gettempdir()) / "dufour_qgis_projects"
+        temp_dir.mkdir(exist_ok=True)
+        temp_path = temp_dir / f"{project_name}.qgz"
+        if qgz and (not temp_path.exists() or temp_path.stat().st_size != len(qgz)):
+            temp_path.write_bytes(qgz)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get("http://localhost:80/qgis", params={
+                "MAP": str(temp_path),
+                "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetCapabilities"
+            })
+        report["checks"]["wms_getcapabilities"] = (
+            "ok" if r.status_code == 200 and "<WMS_Capabilities" in r.text
+            else f"error: HTTP {r.status_code}"
+        )
+    except Exception as e:
+        report["checks"]["wms_getcapabilities"] = f"unreachable: {e}"
+
+    all_ok = all(v.startswith("ok") for v in report["checks"].values())
+    report["status"] = "healthy" if all_ok else "degraded"
+    return report
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
@@ -1854,3 +2084,4 @@ if __name__ == "__main__":
         reload=True,
         log_level="info"
     )
+

@@ -14,13 +14,28 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     username VARCHAR(255) UNIQUE NOT NULL,
     email VARCHAR(500),
+    password_hash VARCHAR(255),
+    role VARCHAR(20) NOT NULL DEFAULT 'user',  -- 'admin' | 'user'
+    is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Default development user
-INSERT INTO users (username, email)
-VALUES ('dev_user', 'dev@intelligeo.net')
-ON CONFLICT (username) DO NOTHING;
+-- Migrate existing rows: add auth columns if missing
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'user';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+
+-- Seed users (passwords are bcrypt hashes; update via /api/admin/users in production)
+-- admin  → password: admin
+-- demo_user → password: demo
+INSERT INTO users (username, email, password_hash, role, is_active)
+VALUES
+  ('admin',     'admin@intelligeo.net',   '$2b$12$KIX7JxCbFr3bXOjoxASuKO7zBobMZ1WLcOSMIzOtjFMrUANBPfWFe', 'admin', true),
+  ('demo_user', 'demo@intelligeo.net',    '$2b$12$T2CphSbQ8OkHfEKKkSaZgOGjOIRPXKLKZB9W8f6mXP5KRYlCr.Bam', 'user',  true)
+ON CONFLICT (username) DO UPDATE
+  SET password_hash = EXCLUDED.password_hash,
+      role          = EXCLUDED.role,
+      is_active     = EXCLUDED.is_active;
 
 -- ============================================================
 -- Projects table (central catalog)

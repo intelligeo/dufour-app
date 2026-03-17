@@ -16,12 +16,13 @@ module.exports = (env, argv) => {
 
     return {
         entry: {
-            QWC2App: path.resolve(__dirname, 'js', 'app.jsx')
+            QWC2App:  path.resolve(__dirname, 'js', 'app.jsx'),
+            AdminApp: path.resolve(__dirname, 'js', 'Admin.jsx')
         },
         output: {
             hashFunction: 'sha256',
             path: path.resolve(__dirname, 'prod'),
-            filename: 'dist/QWC2App.js',
+            filename: 'dist/[name].js',
             assetModuleFilename: 'dist/[hash][ext][query]',
             clean: true
         },
@@ -81,6 +82,15 @@ module.exports = (env, argv) => {
             new webpack.NormalModuleReplacementPlugin(/openlayers$/, path.join(__dirname, "node_modules", qwc2ModName, "libs", "openlayers")),
             new HtmlWebpackPlugin({
                 template: path.resolve(__dirname, "index.html"),
+                filename: "index.html",
+                chunks: ["QWC2App"],
+                build: buildDate,
+                hash: true
+            }),
+            new HtmlWebpackPlugin({
+                template: path.resolve(__dirname, "admin.html"),
+                filename: "admin.html",
+                chunks: ["AdminApp"],
                 build: buildDate,
                 hash: true
             }),

@@ -28,7 +28,7 @@
           {"name": "arcgis_world_topo"},
           {"name": "osm"}
         ],
-        "thumbnail": "img/mapthumbs/default.jpg",
+        "thumbnail": "default.jpg",
         "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
       }
     ],

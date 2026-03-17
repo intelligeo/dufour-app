@@ -152,18 +152,36 @@ class QWCService:
                 bbox_bounds = self._extent_to_wgs84(extent, native_crs)
                 initial_bbox_3857 = self._extent_to_3857(bbox_bounds)
 
-                # Build sublayer list from project catalog so QWC2 shows the layer tree immediately.
-                # QWC2 interprets sublayers:[] as "no sublayers"; omitting the key or providing
-                # actual sublayer entries allows the layer tree to be populated.
-                sublayers = self._get_project_sublayers(project_name)
+                # Build sublayer list from WMS GetCapabilities (source of truth).
+                # QGIS Server knows the exact layer tree, including group layers,
+                # correct WMS names, and queryability flags.
+                # The .qgz must be on disk first; the WMS proxy caches it in
+                # /tmp/dufour_qgis_projects/ — ensure it exists before we ask
+                # QGIS Server for capabilities.
+                sublayers = []
+                try:
+                    from services.qgis_storage_service import storage_service as _ss
+                    import tempfile as _tmp
+                    _temp_dir = Path(_tmp.gettempdir()) / 'dufour_qgis_projects'
+                    _temp_dir.mkdir(exist_ok=True)
+                    _temp_path = _temp_dir / f"{project_name}.qgz"
+                    if not _temp_path.exists():
+                        qgz_bytes = _ss.retrieve_qgz(project_name)
+                        if qgz_bytes:
+                            _temp_path.write_bytes(qgz_bytes)
+                            logger.info(f"themes: exported {project_name}.qgz to {_temp_path}")
+                    if _temp_path.exists():
+                        qgis_wms_url = (
+                            f"http://localhost/qgis?MAP={_temp_path}"
+                        )
+                        sublayers = await self._fetch_sublayers_from_wms(qgis_wms_url)
+                except Exception as exc:
+                    logger.warning(f"themes: WMS sublayer fetch failed for {project_name}: {exc}")
 
-                # If DB catalog is empty, try fetching sublayers directly from QGIS Server GetCapabilities.
-                # We use the internal QGIS Server URL (not the public API proxy) to avoid network roundtrips.
+                # Fallback: use the project_layers DB catalog (flat list, may differ
+                # from actual WMS names — only used when QGIS Server is unreachable).
                 if not sublayers:
-                    qgis_wms_url = (
-                        f"http://localhost/qgis?MAP=/data/projects/{project_name}.qgz"
-                    )
-                    sublayers = await self._fetch_sublayers_from_wms(qgis_wms_url)
+                    sublayers = self._get_project_sublayers(project_name)
 
                 item = {
                     "id": project_name,
@@ -385,45 +403,76 @@ class QWCService:
             import httpx
             import xml.etree.ElementTree as ET
 
-            cap_url = wms_url + "?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities"
+            # Append GetCapabilities params; handle URLs that already have a '?'
+            sep = "&" if "?" in wms_url else "?"
+            cap_url = wms_url + f"{sep}SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities"
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(cap_url)
                 resp.raise_for_status()
 
-            ns = {"wms": "http://www.opengis.net/wms"}
+            # QGIS Server WMS 1.3.0 uses default namespace xmlns="http://www.opengis.net/wms".
+            # ElementTree requires the full {uri} prefix for default-namespace elements.
+            WMS = "http://www.opengis.net/wms"
+            ns = {"wms": WMS}
             root = ET.fromstring(resp.text)
 
-            # Find the Capability/Layer (root layer = project)
-            cap_el = root.find(".//Capability")
+            # Find <Capability> — try with and without namespace
+            cap_el = (
+                root.find(f".//{{{WMS}}}Capability") or
+                root.find(".//Capability")
+            )
             if cap_el is None:
-                return []
-            root_layer = cap_el.find("Layer")  # no namespace in QGIS 3 output
-            if root_layer is None:
-                # Try with namespace
-                root_layer = cap_el.find("wms:Layer", ns)
-            if root_layer is None:
+                logger.warning("_fetch_sublayers_from_wms: no <Capability> element")
                 return []
 
+            # Root <Layer> inside <Capability>
+            root_layer = (
+                cap_el.find(f"{{{WMS}}}Layer") or
+                cap_el.find("Layer")
+            )
+            if root_layer is None:
+                logger.warning("_fetch_sublayers_from_wms: no root <Layer>")
+                return []
+
+            def _find_text(el, tag):
+                """Find text of a child element, trying namespaced then bare."""
+                t = el.findtext(f"{{{WMS}}}{tag}")
+                if t is None:
+                    t = el.findtext(tag)
+                return (t or "").strip()
+
+            def _find_children(el, tag):
+                """Find child elements, trying namespaced then bare."""
+                children = el.findall(f"{{{WMS}}}{tag}")
+                if not children:
+                    children = el.findall(tag)
+                return children
+
             def _parse_layer(el) -> Dict[str, Any]:
-                name = (el.findtext("Name") or el.findtext("wms:Name", namespaces=ns) or "").strip()
-                title = (el.findtext("Title") or el.findtext("wms:Title", namespaces=ns) or name).strip()
+                name = _find_text(el, "Name")
+                title = _find_text(el, "Title") or name
                 queryable = el.get("queryable", "0") == "1"
-                children_els = el.findall("Layer") or el.findall("wms:Layer", ns)
+                children_els = _find_children(el, "Layer")
                 children = [_parse_layer(c) for c in children_els]
                 entry: Dict[str, Any] = {
                     "name": name,
                     "title": title,
                     "visibility": True,
                     "queryable": queryable,
-                    "expanded": False,
+                    "expanded": bool(children),
                 }
                 if children:
                     entry["sublayers"] = children
                 return entry
 
             # QWC2 skips the root layer and uses its children directly
-            child_layers = root_layer.findall("Layer") or root_layer.findall("wms:Layer", ns)
-            return [_parse_layer(c) for c in child_layers]
+            child_layers = _find_children(root_layer, "Layer")
+            sublayers = [_parse_layer(c) for c in child_layers]
+            logger.info(
+                f"_fetch_sublayers_from_wms: got {len(sublayers)} sublayers "
+                f"from {wms_url}"
+            )
+            return sublayers
 
         except Exception as exc:
             logger.warning(f"_fetch_sublayers_from_wms({wms_url!r}) failed: {exc}")
