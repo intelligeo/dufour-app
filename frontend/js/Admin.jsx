@@ -872,7 +872,7 @@ function UserProjects() {
             {showUpload && (
                 <UploadProjectModal
                     onClose={() => setShowUpload(false)}
-                    onDone={() => { setShowUpload(false); reload(); }}
+                    onSave={() => { setShowUpload(false); reload(); }}
                 />
             )}
         </div>
