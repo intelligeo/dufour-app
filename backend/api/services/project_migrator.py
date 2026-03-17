@@ -147,14 +147,44 @@ class ProjectMigrator:
                 for li in project_info.layers
             ]
 
-            # ── 3. Enrich from companion files ───────────────────────────
+            # ── 3. Build companion_map from uploaded files + embedded data ─
+            #
+            # Two sources of vector data:
+            #   a) Files uploaded alongside the .qgz ("companion files")
+            #   b) Files already embedded inside the .qgz archive
+            #      (extracted to parser.temp_dir by QGZParser.extract())
+            #
+            # Both must appear in companion_map so _resolve_companion()
+            # can match datasource references like "./data.gpkg".
+
+            COMPANION_EXTENSIONS = {'.gpkg', '.geojson', '.json', '.shp',
+                                    '.fgb', '.csv', '.dbf', '.shx', '.prj', '.cpg'}
+
             companion_map: Dict[str, Path] = {}
+
+            # (a) Files embedded inside the .qgz (already extracted)
+            if parser.temp_dir and parser.temp_dir.exists():
+                for local_file in parser.temp_dir.rglob('*'):
+                    if local_file.is_file() and local_file.suffix.lower() in COMPANION_EXTENSIONS:
+                        key = local_file.name.lower()
+                        companion_map.setdefault(key, local_file)
+                if companion_map:
+                    logger.info(
+                        f"Found {len(companion_map)} embedded data file(s) "
+                        f"in .qgz: {list(companion_map.keys())}"
+                    )
+
+            # (b) Files explicitly uploaded as companions (override embedded)
             if companion_files:
-                companion_map = {
-                    cf.name.lower(): cf
-                    for cf in companion_files
-                    if cf.exists()
-                }
+                for cf in companion_files:
+                    if cf.exists():
+                        companion_map[cf.name.lower()] = cf
+                logger.info(
+                    f"Added {len(companion_files)} uploaded companion file(s): "
+                    f"{[cf.name for cf in companion_files]}"
+                )
+
+            if companion_map:
                 self._enrich_from_companions(layer_records, companion_map)
 
             # ── 4. Create per-project schema ─────────────────────────────

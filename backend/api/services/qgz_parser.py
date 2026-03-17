@@ -426,7 +426,7 @@ class QGZParser:
         
         # Get datasource
         datasource_elem = layer_elem.find('datasource')
-        datasource = datasource_elem.text if datasource_elem is not None else ''
+        datasource = (datasource_elem.text or '') if datasource_elem is not None else ''
         
         # Determine source type
         source_type = self._identify_source_type(datasource, layer_type)

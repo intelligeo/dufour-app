@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch
 import zipfile
 
-from services.project_migrator import ProjectMigrator
+from services.project_migrator import ProjectMigrator, _slugify, _schema_name
 from services.qgz_parser import ProjectInfo, LayerInfo
-from services.layer_extractor import MigrationResult
+from services.layer_extractor import LayerExtractor
 
 pytestmark = pytest.mark.unit
 
@@ -66,297 +66,145 @@ def sample_project_info():
     )
 
 
-class TestProjectMigrator:
-    """Test Project Migrator functionality"""
-    
-    def test_find_layer_source_with_pipe(self, project_migrator, tmp_path):
-        """Test finding layer source with GeoPackage pipe notation"""
-        # Create temp directory structure
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-        test_file = data_dir / "test.gpkg"
-        test_file.touch()
-        
-        # Test with pipe notation
-        datasource = "./data/test.gpkg|layername=mylayer"
-        result = project_migrator._find_layer_source(tmp_path, datasource)
-        
-        assert result == test_file
-    
-    def test_find_layer_source_direct_path(self, project_migrator, tmp_path):
-        """Test finding layer source with direct path"""
-        # Create test file
-        test_file = tmp_path / "test.geojson"
-        test_file.touch()
-        
-        datasource = "./test.geojson"
-        result = project_migrator._find_layer_source(tmp_path, datasource)
-        
-        assert result == test_file
-    
-    def test_find_layer_source_in_subdirectory(self, project_migrator, tmp_path):
-        """Test finding layer source in subdirectory"""
-        # Create subdirectory structure
-        data_dir = tmp_path / "data" / "layers"
-        data_dir.mkdir(parents=True)
-        test_file = data_dir / "test.shp"
-        test_file.touch()
-        
-        datasource = "./data/layers/test.shp"
-        result = project_migrator._find_layer_source(tmp_path, datasource)
-        
-        assert result == test_file
-    
-    def test_find_layer_source_not_found(self, project_migrator, tmp_path):
-        """Test finding nonexistent layer source"""
-        datasource = "./nonexistent.gpkg"
-        result = project_migrator._find_layer_source(tmp_path, datasource)
-        
+class TestHelpers:
+    """Test module-level helper functions"""
+
+    def test_slugify_simple(self):
+        assert _slugify("my_project") == "my_project"
+
+    def test_slugify_special_chars(self):
+        assert _slugify("My Project!") == "my_project_"
+
+    def test_slugify_empty(self):
+        assert _slugify("!!!") == "project"
+
+    def test_schema_name(self):
+        assert _schema_name("hello_world") == "prj_hello_world"
+
+
+class TestResolveCompanion:
+    """Test _resolve_companion() — the lookup that matches datasource → file"""
+
+    def test_simple_match(self, project_migrator, tmp_path):
+        """Datasource like ./data.gpkg matches companion data.gpkg"""
+        f = tmp_path / "data.gpkg"
+        f.touch()
+        companion_map = {"data.gpkg": f}
+        result = project_migrator._resolve_companion("./data.gpkg", companion_map)
+        assert result == f
+
+    def test_pipe_notation(self, project_migrator, tmp_path):
+        """Datasource with |layername= is stripped correctly"""
+        f = tmp_path / "polygons.gpkg"
+        f.touch()
+        companion_map = {"polygons.gpkg": f}
+        result = project_migrator._resolve_companion(
+            "./data/polygons.gpkg|layername=parcels", companion_map
+        )
+        assert result == f
+
+    def test_subdirectory_path(self, project_migrator, tmp_path):
+        """Datasource with subdirectory resolved by basename"""
+        f = tmp_path / "points.geojson"
+        f.touch()
+        companion_map = {"points.geojson": f}
+        result = project_migrator._resolve_companion(
+            "./subdir/points.geojson", companion_map
+        )
+        assert result == f
+
+    def test_no_match(self, project_migrator):
+        """Missing companion returns None"""
+        result = project_migrator._resolve_companion(
+            "./missing.gpkg", {}
+        )
         assert result is None
-    
-    def test_find_layer_source_glob_search(self, project_migrator, tmp_path):
-        """Test finding layer source with glob pattern"""
-        # Create file in nested structure
-        nested_dir = tmp_path / "level1" / "level2"
-        nested_dir.mkdir(parents=True)
-        test_file = nested_dir / "test.fgb"
-        test_file.touch()
-        
-        # Search should find it via glob
-        datasource = "./test.fgb"
-        result = project_migrator._find_layer_source(tmp_path, datasource)
-        
-        assert result == test_file
-    
-    def test_repackage_qgz(self, project_migrator, tmp_path):
-        """Test repackaging .qgz file"""
-        # Create source directory structure
-        source_dir = tmp_path / "source"
-        source_dir.mkdir()
-        
-        # Create original .qgs
-        original_qgs = source_dir / "project.qgs"
-        original_qgs.write_text("original content")
-        
-        # Create modified .qgs
-        modified_qgs = source_dir / "modified.qgs"
-        modified_qgs.write_text("modified content")
-        
-        # Create data files
-        data_dir = source_dir / "data"
-        data_dir.mkdir()
-        (data_dir / "file1.txt").write_text("data1")
-        (data_dir / "file2.txt").write_text("data2")
-        
-        # Repackage
-        output_path = tmp_path / "output.qgz"
-        project_migrator._repackage_qgz(source_dir, output_path, modified_qgs)
-        
-        # Verify output file created
-        assert output_path.exists()
-        
-        # Verify contents
-        with zipfile.ZipFile(output_path, 'r') as zf:
-            namelist = zf.namelist()
-            
-            # Should contain modified .qgs with original name
-            assert 'project.qgs' in namelist
-            
-            # Should contain data files
-            assert 'data/file1.txt' in namelist
-            assert 'data/file2.txt' in namelist
-            
-            # Check .qgs has modified content
-            qgs_content = zf.read('project.qgs').decode('utf-8')
-            assert qgs_content == "modified content"
-    
-    @patch('services.project_migrator.QGZParser')
-    @patch('services.project_migrator.LayerExtractor')
-    def test_migrate_project_skip_remote_layers(
-        self,
-        mock_extractor_class,
-        mock_parser_class,
-        project_migrator,
-        sample_project_info,
-        tmp_path
-    ):
-        """Test that remote layers are skipped during migration"""
-        # Mock parser
-        mock_parser = MagicMock()
-        mock_parser.temp_dir = tmp_path
-        mock_parser.extract.return_value = tmp_path / "project.qgs"
-        mock_parser.get_project_info.return_value = sample_project_info
-        mock_parser_class.return_value.__enter__.return_value = mock_parser
-        
-        # Mock extractor
-        mock_extractor = MagicMock()
-        mock_extractor_class.return_value = mock_extractor
-        
-        # Create dummy source files
-        (tmp_path / "data").mkdir()
-        (tmp_path / "data" / "points.geojson").touch()
-        (tmp_path / "data" / "polygons.gpkg").touch()
-        
-        # Run migration
-        qgz_path = tmp_path / "test.qgz"
-        qgz_path.touch()
-        
-        project_info, migration_results, modified_qgz = project_migrator.migrate_project(
-            qgz_path=qgz_path,
-            project_name="test_project"
+
+    def test_case_insensitive(self, project_migrator, tmp_path):
+        """companion_map keys are lowered; datasource basename is lowered too"""
+        f = tmp_path / "MyData.gpkg"
+        f.touch()
+        companion_map = {"mydata.gpkg": f}
+        # _resolve_companion lowercases the datasource filename
+        result = project_migrator._resolve_companion(
+            "./MyData.gpkg", companion_map
         )
-        
-        # Should only extract local layers (2 out of 3)
-        assert mock_extractor.extract_layer.call_count == 2
-    
-    @patch('services.project_migrator.QGZParser')
-    @patch('services.project_migrator.LayerExtractor')
-    def test_migrate_project_rollback_on_failure(
-        self,
-        mock_extractor_class,
-        mock_parser_class,
-        project_migrator,
-        sample_project_info,
-        tmp_path
-    ):
-        """Test rollback when migration fails"""
-        # Mock parser
-        mock_parser = MagicMock()
-        mock_parser.temp_dir = tmp_path
-        mock_parser.extract.return_value = tmp_path / "project.qgs"
-        mock_parser.get_project_info.return_value = sample_project_info
-        mock_parser_class.return_value.__enter__.return_value = mock_parser
-        
-        # Mock extractor with failure
-        mock_extractor = MagicMock()
-        mock_extractor.extract_layer.return_value = MigrationResult(
-            layer_name="Points",
-            table_name="test_project_points",
-            features_count=0,
-            geometry_type="Point",
-            source_crs="EPSG:4326",
-            target_crs="EPSG:2056",
-            success=False,
-            error="Extraction failed"
-        )
-        mock_extractor_class.return_value = mock_extractor
-        
-        # Create dummy source files
-        (tmp_path / "data").mkdir()
-        (tmp_path / "data" / "points.geojson").touch()
-        
-        # Run migration
-        qgz_path = tmp_path / "test.qgz"
-        qgz_path.touch()
-        
-        project_info, migration_results, modified_qgz = project_migrator.migrate_project(
-            qgz_path=qgz_path,
-            project_name="test_project"
-        )
-        
-        # Check that we got results even with failures
-        assert len(migration_results) > 0
-        assert any(not r.success for r in migration_results)
-    
-    def test_rollback_migration(self, project_migrator):
-        """Test rollback migration drops tables"""
-        # Create mock migration results
-        migration_results = [
-            MigrationResult(
-                layer_name="layer1",
-                table_name="test_project_layer1",
-                features_count=100,
-                geometry_type="Point",
-                source_crs="EPSG:4326",
-                target_crs="EPSG:2056",
-                success=True
-            ),
-            MigrationResult(
-                layer_name="layer2",
-                table_name="test_project_layer2",
-                features_count=0,
-                geometry_type="",
-                source_crs="",
-                target_crs="EPSG:2056",
-                success=False,
-                error="Failed"
-            )
-        ]
-        
-        # Mock extractor
-        with patch('services.project_migrator.LayerExtractor') as mock_extractor_class:
-            mock_extractor = MagicMock()
-            mock_extractor_class.return_value = mock_extractor
-            
-            # Run rollback
-            project_migrator.rollback_migration("test_project", migration_results)
-            
-            # Should only try to drop successful migrations
-            mock_extractor.drop_table.assert_called_once_with("test_project_layer1")
+        assert result == f
 
 
-class TestProjectMigratorIntegration:
-    """Integration tests for project migration"""
-    
-    @patch('services.project_migrator.QGZParser')
-    @patch('services.project_migrator.LayerExtractor')
-    def test_full_migration_workflow(
-        self,
-        mock_extractor_class,
-        mock_parser_class,
-        project_migrator,
-        sample_project_info,
-        tmp_path
+class TestEmbeddedCompanionDiscovery:
+    """
+    Test that migrate_project() discovers data files embedded inside the .qgz
+    archive, not only files explicitly uploaded by the user.
+    This was the root cause of the companion-files bug.
+    """
+
+    def _make_qgz_with_embedded_gpkg(self, tmp_path):
+        """Create a .qgz archive that contains a .gpkg inside it."""
+        qgs_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<qgis projectname="embed_test" version="3.40.7">
+  <title>Embedded Test</title>
+  <mapcanvas>
+    <destinationsrs><spatialrefsys><authid>EPSG:2056</authid></spatialrefsys></destinationsrs>
+    <extent><xmin>2600000</xmin><ymin>1200000</ymin><xmax>2650000</xmax><ymax>1250000</ymax></extent>
+  </mapcanvas>
+  <projectlayers>
+    <maplayer type="vector" geometry="Point">
+      <id>embedded_layer_1</id>
+      <datasource>./data.gpkg|layername=points</datasource>
+      <layername>Embedded Points</layername>
+      <srs><spatialrefsys><authid>EPSG:2056</authid></spatialrefsys></srs>
+      <provider>ogr</provider>
+    </maplayer>
+  </projectlayers>
+</qgis>"""
+        qgz_path = tmp_path / "embed_test.qgz"
+        with zipfile.ZipFile(qgz_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("embed_test.qgs", qgs_xml)
+            zf.writestr("data.gpkg", b"FAKE_GPKG_CONTENT")
+        return qgz_path
+
+    @patch('services.project_migrator.fiona')
+    @patch('services.project_migrator.db')
+    def test_embedded_gpkg_found_in_companion_map(
+        self, mock_db, mock_fiona, tmp_path
     ):
-        """Test complete migration workflow"""
-        # Setup mocks
-        mock_parser = MagicMock()
-        mock_parser.temp_dir = tmp_path
-        mock_parser.extract.return_value = tmp_path / "project.qgs"
-        mock_parser.get_project_info.return_value = sample_project_info
-        mock_parser_class.return_value.__enter__.return_value = mock_parser
-        
-        mock_extractor = MagicMock()
-        mock_extractor.extract_layer.return_value = MigrationResult(
-            layer_name="Points",
-            table_name="test_project_points",
-            features_count=50,
-            geometry_type="Point",
-            source_crs="EPSG:4326",
-            target_crs="EPSG:2056",
-            success=True
-        )
-        mock_extractor.generate_postgis_datasource.return_value = "dbname='dufour' table='test_project_points'"
-        mock_extractor._extract_epsg_code.return_value = 2056
-        mock_extractor_class.return_value = mock_extractor
-        
-        # Create dummy files
-        (tmp_path / "data").mkdir()
-        (tmp_path / "data" / "points.geojson").touch()
-        (tmp_path / "data" / "polygons.gpkg").touch()
-        
-        # Create dummy .qgz
-        qgz_path = tmp_path / "test.qgz"
-        with zipfile.ZipFile(qgz_path, 'w') as zf:
-            zf.writestr('project.qgs', '<qgis></qgis>')
-        
-        # Run migration
-        project_info, migration_results, modified_qgz = project_migrator.migrate_project(
+        """
+        When a .qgz contains a .gpkg, migrate_project() should add it to
+        companion_map and attempt extraction (instead of 'No companion' skip).
+        """
+        mock_engine = MagicMock()
+        mock_db.get_engine.return_value = mock_engine
+        # Make engine.connect() a context-manager that returns a mock connection
+        mock_conn = MagicMock()
+        mock_engine.connect.return_value.__enter__ = Mock(return_value=mock_conn)
+        mock_engine.connect.return_value.__exit__ = Mock(return_value=False)
+
+        # fiona.open should be called for the embedded gpkg
+        mock_src = MagicMock()
+        mock_src.crs = {'init': 'EPSG:2056'}
+        mock_src.__len__ = Mock(return_value=5)
+        mock_src.schema = {'geometry': 'Point', 'properties': {'name': 'str'}}
+        mock_src.__iter__ = Mock(return_value=iter([]))
+        mock_fiona.open.return_value.__enter__ = Mock(return_value=mock_src)
+        mock_fiona.open.return_value.__exit__ = Mock(return_value=False)
+
+        qgz_path = self._make_qgz_with_embedded_gpkg(tmp_path)
+
+        migrator = ProjectMigrator(engine=mock_engine)
+        project_info, layer_records, qgz_bytes, schema = migrator.migrate_project(
             qgz_path=qgz_path,
-            project_name="test_project",
-            target_crs="EPSG:2056"
+            project_name="embed_test",
+            companion_files=None,       # NO uploaded companions
         )
-        
-        # Verify results
-        assert project_info == sample_project_info
-        assert len(migration_results) > 0
-        assert modified_qgz is not None
-        assert isinstance(modified_qgz, bytes)
-        
-        # Verify extractor was called
-        assert mock_extractor.extract_layer.called
-        assert mock_extractor.generate_postgis_datasource.called
-        
-        # Verify parser datasource updates
-        assert mock_parser.update_layer_datasource.called
-        assert mock_parser.save_modified_qgs.called
+
+        # The single layer should NOT have been skipped
+        assert len(layer_records) == 1
+        rec = layer_records[0]
+        assert rec.layer_name == "Embedded Points"
+        assert rec.source_type == "gpkg"
+
+        # fiona.open must have been called (companion found → extraction attempted)
+        assert mock_fiona.open.called, (
+            "fiona.open was never called — embedded .gpkg was not discovered"
+        )
