@@ -26,6 +26,7 @@ from services.project_migrator import ProjectMigrator, LayerRecord
 from services.symbol_service import symbol_service, validate_sidc
 from models.schemas import ProjectResponse, TableSchema, UploadResponse
 from database.connection import db
+from sqlalchemy import text
 
 # Initialize FastAPI app with OpenAPI metadata
 app = FastAPI(
