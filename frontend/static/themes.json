@@ -25,7 +25,8 @@
         "backgroundLayers": [
           {"name": "swisstopo_national"},
           {"name": "arcgis_world_imagery"},
-          {"name": "arcgis_world_topo"},
+          {"name": "cartodb_dark_matter"},
+          {"name": "cartodb_positron"},
           {"name": "osm"}
         ],
         "thumbnail": "default.jpg",
@@ -50,17 +51,6 @@
     ],
     "backgroundLayers": [
       {
-        "name": "swisstopo_national",
-        "title": "swisstopo Maps",
-        "type": "xyz",
-        "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
-        "projection": "EPSG:3857",
-        "minZoom": 0,
-        "maxZoom": 22,
-        "thumbnail": "swisstopo.jpg",
-        "attribution": "© swisstopo"
-      },
-      {
         "name": "arcgis_world_imagery",
         "title": "ArcGIS World Imagery",
         "type": "xyz",
@@ -70,13 +60,22 @@
         "attribution": "Esri, DigitalGlobe, GeoEye, Earthstar Geographics"
       },
       {
-        "name": "arcgis_world_topo",
-        "title": "ArcGIS World Topographic",
+        "name": "cartodb_dark_matter",
+        "title": "CartoDB Dark Matter",
         "type": "xyz",
-        "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+        "url": "http://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
         "projection": "EPSG:3857",
-        "thumbnail": "arcgis_topo.jpg",
-        "attribution": "Esri, HERE, Garmin, OpenStreetMap contributors"
+        "thumbnail": "cartodb_dark.jpg",
+        "attribution": "© OpenStreetMap contributors, © CARTO"
+      },
+      {
+        "name": "cartodb_positron",
+        "title": "CartoDB Positron",
+        "type": "xyz",
+        "url": "http://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+        "projection": "EPSG:3857",
+        "thumbnail": "cartodb_positron.jpg",
+        "attribution": "© OpenStreetMap contributors, © CARTO"
       },
       {
         "name": "osm",

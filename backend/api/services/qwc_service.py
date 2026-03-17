@@ -204,9 +204,9 @@ class QWCService:
                     "printResolutions": [150, 300, 600],
                     "searchProviders": ["coordinates", "geoadmin"],
                     "backgroundLayers": [
-                        {"name": "swisstopo_national"},
                         {"name": "arcgis_world_imagery"},
-                        {"name": "arcgis_world_topo"},
+                        {"name": "cartodb_dark_matter"},
+                        {"name": "cartodb_positron"},
                         {"name": "osm"}
                     ],
                     "thumbnail": f"../api/projects/{project_name}/thumbnail",
@@ -273,7 +273,8 @@ class QWCService:
                     "backgroundLayers": [
                         {"name": "swisstopo_national"},
                         {"name": "arcgis_world_imagery"},
-                        {"name": "arcgis_world_topo"},
+                        {"name": "cartodb_dark_matter"},
+                        {"name": "cartodb_positron"},
                         {"name": "osm"}
                     ],
                     "thumbnail": f"../api/projects/{theme_name}/thumbnail"
@@ -301,7 +302,8 @@ class QWCService:
                 "backgroundLayers": [
                     {"name": "swisstopo_national"},
                     {"name": "arcgis_world_imagery"},
-                    {"name": "arcgis_world_topo"},
+                    {"name": "cartodb_dark_matter"},
+                    {"name": "cartodb_positron"},
                     {"name": "osm"}
                 ],
                 "thumbnail": "img/mapthumbs/default.jpg",
@@ -378,13 +380,22 @@ class QWCService:
                 "attribution": "Esri, DigitalGlobe, GeoEye, Earthstar Geographics"
             },
             {
-                "name": "arcgis_world_topo",
-                "title": "ArcGIS World Topographic",
+                "name": "cartodb_dark_matter",
+                "title": "CartoDB Dark Matter",
                 "type": "xyz",
-                "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+                "url": "http://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
                 "projection": "EPSG:3857",
-                "thumbnail": "arcgis_topo.jpg",
-                "attribution": "Esri, HERE, Garmin, OpenStreetMap contributors"
+                "thumbnail": "cartodb_dark.jpg",
+                "attribution": "© OpenStreetMap contributors, © CARTO"
+            },
+            {
+                "name": "cartodb_positron",
+                "title": "CartoDB Positron",
+                "type": "xyz",
+                "url": "http://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+                "projection": "EPSG:3857",
+                "thumbnail": "cartodb_positron.jpg",
+                "attribution": "© OpenStreetMap contributors, © CARTO"
             },
             {
                 "name": "osm",
