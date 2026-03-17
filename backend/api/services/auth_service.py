@@ -35,11 +35,11 @@ JWT_SECRET    = os.getenv("JWT_SECRET", "dufour-change-me-in-production-secret-k
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MIN = int(os.getenv("JWT_EXPIRE_MIN", "480"))  # 8 h
 
-SMTP_HOST     = os.getenv("SMTP_HOST", "mail.infomaniak.com")
+SMTP_HOST     = os.getenv("SMTP_HOST", "")
 SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER     = os.getenv("SMTP_USER", "admin@dufour.app")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "2WyGvfwf+w9+63jg")
-SMTP_FROM     = os.getenv("SMTP_FROM", "No-Reply Dufour.app") or SMTP_USER
+SMTP_USER     = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM     = os.getenv("SMTP_FROM", "") or SMTP_USER
 APP_BASE_URL  = os.getenv("APP_BASE_URL", "https://dev.dufour.app")
 
 RESET_TOKEN_EXPIRE_MIN = int(os.getenv("RESET_TOKEN_EXPIRE_MIN", "30"))  # 30 min
