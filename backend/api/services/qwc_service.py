@@ -191,7 +191,7 @@ class QWCService:
                         {"name": "arcgis_world_topo"},
                         {"name": "osm"}
                     ],
-                    "thumbnail": "img/mapthumbs/default.jpg",
+                    "thumbnail": f"{api_base_url}/api/projects/{project_name}/thumbnail",
                     "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
                 }
                 # Only include sublayers if we have actual data — QWC2 uses sublayers:[] as
@@ -236,7 +236,7 @@ class QWCService:
                         {"name": "arcgis_world_topo"},
                         {"name": "osm"}
                     ],
-                    "thumbnail": "img/mapthumbs/default.jpg"
+                    "thumbnail": f"{api_base_url}/api/projects/{theme_name}/thumbnail"
                 }
                 items.append(item)
             except Exception:
@@ -620,7 +620,7 @@ class QWCService:
                 "name": "swisstopo",
                 "title": "swisstopo Maps",
                 "type": "wmts",
-                "url": "https://wmts.geo.admin.ch/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg",
+                "url": "/wmts/1.0.0/{Layer}/default/current/3857/{TileMatrix}/{TileRow}/{TileCol}.jpeg",
                 "tileMatrixSet": "3857",
                 "originX": -20037508.34,
                 "originY": 20037508.34,

@@ -172,8 +172,38 @@ class QGISStorageService:
             raise  # Propagate — let caller distinguish "not found" from "DB error"
         finally:
             session.close()
-    
-    
+
+
+    def get_project_meta(self, project_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Return lightweight project metadata (no binary data) for a single project.
+        Returns None if the project does not exist.
+        """
+        session = get_db_session()
+        try:
+            result = session.execute(text("""
+                SELECT name, title, description, crs,
+                       extent_minx, extent_miny, extent_maxx, extent_maxy
+                FROM projects
+                WHERE name = :name
+            """), {'name': project_name})
+            row = result.fetchone()
+            if not row:
+                return None
+            return {
+                'name': row[0],
+                'title': row[1],
+                'description': row[2],
+                'crs': row[3],
+                'extent': [row[4], row[5], row[6], row[7]] if row[4] is not None else None,
+            }
+        except Exception as e:
+            logger.error(f"DB ERROR get_project_meta({project_name}): {e}")
+            return None
+        finally:
+            session.close()
+
+
     def list_projects(self) -> List[Dict[str, Any]]:
         """
         List all stored projects with metadata

@@ -1528,6 +1528,100 @@ async def compose_print_with_symbols(request: dict):
 
 # ==================== WMS PROXY ENDPOINTS ====================
 
+@app.get("/api/projects/{project_name}/thumbnail", tags=["wms"])
+async def project_thumbnail(project_name: str):
+    """
+    # Project Thumbnail
+
+    Returns a 200×200 PNG snapshot of the project rendered by QGIS Server via WMS GetMap.
+    The bounding box is derived from the project extent stored in the database.
+    Used by the QWC2 theme picker to show a preview image for each uploaded project.
+
+    - **200**: PNG image
+    - **404**: Project not found
+    - **502**: QGIS Server unreachable
+    """
+    try:
+        # Load project metadata for extent / CRS
+        project_meta = storage_service.get_project_meta(project_name)
+        if not project_meta:
+            raise HTTPException(status_code=404, detail=f"Project {project_name} not found")
+
+        # Ensure .qgz is written to temp dir (same logic as wms_proxy)
+        qgz_bytes = storage_service.retrieve_qgz(project_name)
+        if not qgz_bytes:
+            raise HTTPException(status_code=404, detail=f"Project {project_name} binary not found")
+
+        temp_dir = Path(tempfile.gettempdir()) / 'dufour_qgis_projects'
+        temp_dir.mkdir(exist_ok=True)
+        temp_path = temp_dir / f"{project_name}.qgz"
+        if not temp_path.exists() or temp_path.stat().st_size != len(qgz_bytes):
+            temp_path.write_bytes(qgz_bytes)
+
+        # Derive bbox in EPSG:3857 from stored extent
+        extent = project_meta.get('extent') or [-180, -85, 180, 85]
+        native_crs = project_meta.get('crs') or 'EPSG:4326'
+        try:
+            from pyproj import Transformer
+            to_3857 = Transformer.from_crs(native_crs, "EPSG:3857", always_xy=True)
+            xmin, ymin = to_3857.transform(extent[0], extent[1])
+            xmax, ymax = to_3857.transform(extent[2], extent[3])
+        except Exception:
+            # Fallback: assume WGS84 extents and convert manually
+            from pyproj import Transformer
+            to_3857 = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
+            xmin, ymin = to_3857.transform(extent[0], extent[1])
+            xmax, ymax = to_3857.transform(extent[2], extent[3])
+
+        bbox = f"{xmin},{ymin},{xmax},{ymax}"
+
+        # Build WMS GetMap request to internal QGIS Server
+        params = {
+            "MAP": str(temp_path),
+            "SERVICE": "WMS",
+            "VERSION": "1.3.0",
+            "REQUEST": "GetMap",
+            "CRS": "EPSG:3857",
+            "BBOX": bbox,
+            "WIDTH": "200",
+            "HEIGHT": "200",
+            "FORMAT": "image/png",
+            "TRANSPARENT": "FALSE",
+            # Use the root/project layer — QGIS exposes all layers merged
+            "LAYERS": project_name,
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get("http://localhost:80/qgis", params=params)
+
+        content_type = resp.headers.get("Content-Type", "image/png")
+        if resp.status_code == 200 and "image" in content_type:
+            return Response(
+                content=resp.content,
+                media_type="image/png",
+                headers={"Cache-Control": "public, max-age=300"},
+            )
+
+        # QGIS returned an error — fall back to a 1×1 transparent PNG
+        logger.warning(
+            f"thumbnail: QGIS GetMap failed for {project_name}: "
+            f"HTTP {resp.status_code} {resp.text[:200]}"
+        )
+        # 1×1 transparent PNG (67 bytes, base64-decoded inline)
+        import base64
+        _TRANSPARENT_PNG = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        )
+        return Response(content=_TRANSPARENT_PNG, media_type="image/png",
+                        headers={"Cache-Control": "no-cache"})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"thumbnail error for {project_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.api_route("/api/projects/{project_name}/wms", methods=["GET", "POST"], tags=["wms"])
 async def wms_proxy(project_name: str, request: Request):
     """
