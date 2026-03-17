@@ -586,6 +586,11 @@ async def upload_and_migrate_project(
                     "layers_count": len(layer_records),
                     "qgz_size": len(qgz_bytes)
                 },
+                "debug": {
+                    "data_files_received": len(data_files),
+                    "valid_data_files": [df.filename for df in valid_data_files],
+                    "companion_paths": [str(p) for p in companion_paths],
+                },
                 "layers": [
                     {
                         "layer_name": r.layer_name,
