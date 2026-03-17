@@ -145,8 +145,12 @@ class MilSymbSupport extends React.Component {
     };
 
     loadMilSymbLayer = (mlDef, apiBase) => {
-        const url = apiBase + mlDef.geojsonUrl;
-        const symbolBaseUrl = apiBase + (mlDef.symbolBaseUrl || '/api/symbols');
+        // If the URL from themes.json is already absolute, use it as-is;
+        // otherwise prepend apiBase (same-origin or assetsPath origin).
+        const rawGeo = mlDef.geojsonUrl;
+        const url = (rawGeo && rawGeo.startsWith('http')) ? rawGeo : apiBase + rawGeo;
+        const rawSym = mlDef.symbolBaseUrl || '/api/symbols';
+        const symbolBaseUrl = (rawSym.startsWith('http')) ? rawSym : apiBase + rawSym;
 
         axios.get(url).then(response => {
             const geojson = response.data;

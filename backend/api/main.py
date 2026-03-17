@@ -199,6 +199,8 @@ async def run_db_migrations():
         # public.project_layers — enriched metadata columns
         "ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS crs VARCHAR(50)",
         "ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS features_count INTEGER DEFAULT 0",
+        # Drop obsolete CHECK constraint that rejects 'plugin' layer_type
+        "ALTER TABLE project_layers DROP CONSTRAINT IF EXISTS valid_layer_type",
         # public.password_reset_tokens — password recovery
         """CREATE TABLE IF NOT EXISTS password_reset_tokens (
             id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -585,6 +587,10 @@ async def upload_and_migrate_project(
             # Store layer metadata in public.project_layers (central catalog)
             with db.get_engine().connect() as conn:
                 for rec in layer_records:
+                    # Plugin layers (e.g. KadasMilxLayer) are handled by the
+                    # MilSymb pipeline and have no meaningful catalog entry.
+                    if rec.layer_type == 'plugin':
+                        continue
                     conn.execute(text("""
                         INSERT INTO project_layers (
                             id, project_id, layer_name, layer_type,
@@ -1039,7 +1045,7 @@ async def diagnose_project(project_name: str):
 # ==================== QWC ENDPOINTS ====================
 
 @app.get("/themes.json", tags=["qwc2"])
-async def get_themes_json():
+async def get_themes_json(request: Request):
     """
     # QWC2 Themes Configuration
 
@@ -1053,9 +1059,19 @@ async def get_themes_json():
     - Default scales, CRS, print settings
     """
     try:
-        # Use empty base URL so WMS URLs are relative (e.g. /api/projects/{name}/wms)
-        # This avoids http/https mismatch when TLS is terminated by reverse proxy
-        themes = await qwc_service.generate_full_themes_json("")
+        # Derive public API base URL from the incoming request so that WMS,
+        # GeoJSON and symbol URLs resolve correctly regardless of whether
+        # themes.json is fetched directly or via the nginx reverse proxy.
+        api_base_url = str(request.base_url).rstrip("/")
+        # When behind the nginx proxy the Host header is rewritten to
+        # "api.intelligeo.net" — use it.  Fall back to env var or empty.
+        forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+        if forwarded_host:
+            api_base_url = f"{forwarded_proto}://{forwarded_host}"
+        else:
+            api_base_url = os.getenv("API_PUBLIC_URL", "").rstrip("/")
+        themes = await qwc_service.generate_full_themes_json(api_base_url)
         return JSONResponse(content=themes)
     except Exception as e:
         logger.error(f"Error generating themes.json: {e}")

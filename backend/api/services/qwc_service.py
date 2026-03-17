@@ -229,8 +229,8 @@ class QWCService:
                                 "featureCount": len(ml.features),
                                 "symbolSize": ml.symbol_size,
                                 "lineWidth": ml.line_width,
-                                "geojsonUrl": f"/api/projects/{project_name}/milsymb/{ml.title.replace(' ', '_')}.geojson",
-                                "symbolBaseUrl": "/api/symbols",
+                                "geojsonUrl": f"{api_base_url}/api/projects/{project_name}/milsymb/{ml.title.replace(' ', '_')}.geojson",
+                                "symbolBaseUrl": f"{api_base_url}/api/symbols",
                             }
                             for ml in milsymb_layers
                         ]

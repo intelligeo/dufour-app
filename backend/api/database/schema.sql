@@ -94,6 +94,10 @@ ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS crs VARCHAR(50);
 ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS features_count INTEGER DEFAULT 0;
 ALTER TABLE project_layers ALTER COLUMN datasource TYPE TEXT;
 
+-- Drop the manually-added CHECK constraint that rejects 'plugin' layers
+-- (layer_type is free-form VARCHAR; validation is done in application code)
+ALTER TABLE project_layers DROP CONSTRAINT IF EXISTS valid_layer_type;
+
 -- ============================================================
 -- Password reset tokens
 -- ============================================================
