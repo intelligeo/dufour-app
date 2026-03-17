@@ -24,6 +24,7 @@ from services.qwc_service import QWCService
 from services.qgis_storage_service import storage_service
 from services.project_migrator import ProjectMigrator, LayerRecord
 from services.symbol_service import symbol_service, validate_sidc
+from services.auth_service import get_current_user
 from models.schemas import ProjectResponse, TableSchema, UploadResponse
 from database.connection import db
 from sqlalchemy import text
@@ -371,6 +372,7 @@ async def upload_and_migrate_project(
     description: Optional[str] = Form(None, description="Project description"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     # Upload QGIS Project
@@ -536,6 +538,7 @@ async def upload_and_migrate_project(
                     :created_at, :updated_at
                 )
                 ON CONFLICT (name) DO UPDATE SET
+                    user_id = EXCLUDED.user_id,
                     title = EXCLUDED.title,
                     description = EXCLUDED.description,
                     qgz_data = EXCLUDED.qgz_data,
@@ -553,7 +556,7 @@ async def upload_and_migrate_project(
             with db.get_engine().connect() as conn:
                 result = conn.execute(insert_sql, {
                     'id': project_id,
-                    'user_id': None,
+                    'user_id': current_user['id'],
                     'name': name,
                     'title': title or project_info.title,
                     'description': description,
