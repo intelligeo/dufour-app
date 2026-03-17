@@ -320,8 +320,8 @@ class QWCService:
                 "name": "swisstopo_national",
                 "title": "swisstopo Maps",
                 "type": "xyz",
-                # Routed via nginx /wmts/ → wmts.geo.admin.ch (avoids CORS, adds caching)
-                "url": "/wmts/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
+                # Direct URL to wmts.geo.admin.ch — serves Access-Control-Allow-Origin: * natively
+                "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
                 "projection": "EPSG:3857",
                 "minZoom": 0,
                 "maxZoom": 17,

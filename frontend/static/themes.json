@@ -53,7 +53,7 @@
         "name": "swisstopo_national",
         "title": "swisstopo Maps",
         "type": "xyz",
-        "url": "/wmts/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
+        "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
         "projection": "EPSG:3857",
         "minZoom": 0,
         "maxZoom": 17,
