@@ -34,64 +34,65 @@ app = FastAPI(
     description="""
 # 🗺️ Dufour-App Backend API
 
-Content management system for QGIS projects and PostGIS data in Dufour-app.
+Middleware API for **[Dufour.app](https://dufour.app)** — a web-based GIS platform
+built on [QWC2](https://github.com/qgis/qwc2) (QGIS Web Client 2).
 
-## Features
+Provides project management, OGC WMS rendering (via embedded QGIS Server),
+military symbol rendering (APP-6D / MIL-STD-2525C), and a QWC2-compatible
+theme configuration layer.
 
-### Project Management
-- Upload and publish QGIS projects (.qgs, .qgz)
-- Automatic layer migration from local files to PostGIS
-- Project metadata and versioning
-- WMS service integration
+---
 
-### Data Management
-- PostGIS table creation and management
-- Bulk feature upload (GeoJSON, Shapefile, etc.)
-- Spatial data validation
-- Schema introspection
+## Core Features
 
-### WMS Proxy
-- On-demand QGIS Server integration
-- Cached project retrieval from PostgreSQL
-- GetCapabilities, GetMap, GetFeatureInfo support
-
-### QWC2 Integration
-- Theme configuration generation
-- Layer tree and capabilities export
-- Frontend compatibility layer
-
-### Military Symbols (APP-6D / MIL-STD-2525C)
-- Single and batch symbol rendering (SVG, PNG) via embedded milsymbol server
-- SIDC validation and format detection
-- Full modifier support (designation, direction, speed, HQ, etc.)
-- Server-side LRU cache with 24h browser caching
-- Print composition with symbol overlays on QGIS base maps
+| Area | Capabilities |
+|------|-------------|
+| **Projects** | Upload `.qgz`, auto-migrate layers to PostGIS, per-project schema (`prj_<name>`), companion data files |
+| **WMS Proxy** | GetCapabilities · GetMap · GetFeatureInfo · GetLegendGraphic via embedded QGIS Server |
+| **QWC2 Themes** | Dynamic `themes.json` generation, layer tree, extent & scale sets |
+| **Symbols** | Single & batch rendering (SVG/PNG) of NATO APP-6D + MIL-STD-2525C SIDCs |
+| **Print** | Compose print maps with military symbol overlays on QGIS base maps |
+| **Auth** | JWT authentication (login, user management, admin panel) |
 
 ## Architecture
 
 ```
-Frontend (React + OpenLayers)
-    ↓
-Dufour Middleware API (FastAPI)
-    ↓
-├── PostgreSQL + PostGIS (data storage)
-└── QGIS Server (map rendering)
+QWC2 Frontend (React + OpenLayers)
+        ↓  HTTPS
+┌───────────────────────────────────────────┐
+│  Docker Container  (Render.com)           │
+│                                           │
+│  FastAPI (:10000)                         │
+│    ├─ /api/projects/*    CRUD + WMS proxy │
+│    ├─ /api/symbols/*     milsymbol proxy  │
+│    ├─ /api/print/compose overlay + render │
+│    ├─ /api/v1/themes/*   QWC2 config      │
+│    ├─ /api/auth/*        JWT login        │
+│    └─ /api/admin/*       user management  │
+│                                           │
+│  QGIS Server (nginx :80 → fcgi :9993)    │
+│  Milsymbol Server (Node.js :2525)         │
+└────────────────┬──────────────────────────┘
+                 │ SQL
+                 ↓
+    PostgreSQL 16 + PostGIS (alwaysdata.net)
 ```
+
+## Per-Project Schema
+
+Each uploaded project gets a dedicated PostgreSQL schema `prj_<name>`:
+- `project` — metadata row
+- `project_layers` — one row per layer
+- `lyr_<layer>` — PostGIS feature table (when companion data file is provided)
 
 ## Authentication
 
-Currently public API. Future versions will implement JWT authentication.
+JWT bearer tokens via `/api/auth/login`. Admin endpoints require the `admin` role.
 
-## Rate Limits
+## Links
 
-- File uploads: 50MB max
-- Request timeout: 30 seconds
-- No rate limiting (production will implement)
-
-## Support
-
-- Documentation: https://github.com/intelligeo/dufour-app
-- Issues: https://github.com/intelligeo/dufour-app/issues
+- [GitHub](https://github.com/intelligeo/dufour-app)
+- [API Guide](https://github.com/intelligeo/dufour-app/blob/main/backend/api/API_GUIDE.md)
 """,
     version="1.0.0",
     contact={
@@ -106,27 +107,43 @@ Currently public API. Future versions will implement JWT authentication.
     openapi_tags=[
         {
             "name": "system",
-            "description": "System health and status endpoints"
+            "description": "Health check and detailed status (DB, QGIS Server, milsymbol)"
         },
         {
             "name": "projects",
-            "description": "QGIS project management (upload, publish, delete, list)"
-        },
-        {
-            "name": "data",
-            "description": "PostGIS data operations (tables, bulk upload)"
+            "description": "QGIS project CRUD — upload `.qgz` with optional companion data files, per-project schema, publish, delete"
         },
         {
             "name": "wms",
-            "description": "OGC WMS proxy for QGIS Server integration"
+            "description": "OGC WMS proxy — GetCapabilities, GetMap, GetFeatureInfo, GetLegendGraphic, thumbnails"
+        },
+        {
+            "name": "data",
+            "description": "PostGIS data operations — create tables, bulk feature upload, list tables"
         },
         {
             "name": "qwc2",
-            "description": "QWC2 theme configuration (compatibility layer)"
+            "description": "QWC2 theme configuration — `themes.json`, layer tree, capabilities"
         },
         {
             "name": "symbols",
-            "description": "Military symbol rendering (APP-6D / MIL-STD-2525C via milsymbol)"
+            "description": "Military symbol rendering — APP-6D / MIL-STD-2525C, SVG & PNG, batch, print composition"
+        },
+        {
+            "name": "auth",
+            "description": "JWT authentication — login, current user info"
+        },
+        {
+            "name": "admin",
+            "description": "Admin panel — user CRUD, project management (requires `admin` role)"
+        },
+        {
+            "name": "user",
+            "description": "Authenticated user endpoints — own projects, project health"
+        },
+        {
+            "name": "debug",
+            "description": "Temporary diagnostic endpoints (development only)"
         }
     ],
     swagger_ui_parameters={
