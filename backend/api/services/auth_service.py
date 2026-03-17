@@ -25,7 +25,7 @@ from typing import Optional, Dict, Any
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt as _bcrypt
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
@@ -44,23 +44,21 @@ APP_BASE_URL  = os.getenv("APP_BASE_URL", "https://dev.dufour.app")
 
 RESET_TOKEN_EXPIRE_MIN = int(os.getenv("RESET_TOKEN_EXPIRE_MIN", "30"))  # 30 min
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
-# ── Password helpers ──────────────────────────────────────────────────────────
-
-def _truncate_for_bcrypt(password: str) -> str:
-    """Bcrypt only uses the first 72 bytes; truncate to avoid errors with bcrypt ≥ 4.1."""
-    return password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
-
+# ── Password helpers (bcrypt direct — no passlib) ─────────────────────────────
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(_truncate_for_bcrypt(plain), hashed)
+    """Verify a plain password against a bcrypt hash.  Truncates to 72 bytes."""
+    pw = plain.encode("utf-8")[:72]
+    return _bcrypt.checkpw(pw, hashed.encode("utf-8"))
 
 
 def hash_password(plain: str) -> str:
-    return pwd_context.hash(_truncate_for_bcrypt(plain))
+    """Hash a password with bcrypt.  Truncates to 72 bytes."""
+    pw = plain.encode("utf-8")[:72]
+    return _bcrypt.hashpw(pw, _bcrypt.gensalt()).decode("utf-8")
 
 
 # ── JWT helpers ───────────────────────────────────────────────────────────────
