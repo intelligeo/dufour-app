@@ -27,6 +27,7 @@
           {"name": "arcgis_world_imagery"},
           {"name": "cartodb_dark_matter"},
           {"name": "cartodb_positron"},
+          {"name": "opentopomap"},
           {"name": "osm"}
         ],
         "thumbnail": "default.jpg",
@@ -51,12 +52,23 @@
     ],
     "backgroundLayers": [
       {
+        "name": "swisstopo_national",
+        "title": "swisstopo Maps",
+        "type": "xyz",
+        "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
+        "projection": "EPSG:3857",
+        "minZoom": 0,
+        "maxZoom": 17,
+        "thumbnail": "img/mapthumbs/swisstopo.jpg",
+        "attribution": "© swisstopo"
+      },
+      {
         "name": "arcgis_world_imagery",
         "title": "ArcGIS World Imagery",
         "type": "xyz",
         "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         "projection": "EPSG:3857",
-        "thumbnail": "arcgis_imagery.jpg",
+        "thumbnail": "img/mapthumbs/arcgis_imagery.jpg",
         "attribution": "Esri, DigitalGlobe, GeoEye, Earthstar Geographics"
       },
       {
@@ -65,7 +77,7 @@
         "type": "xyz",
         "url": "http://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
         "projection": "EPSG:3857",
-        "thumbnail": "cartodb_dark.jpg",
+        "thumbnail": "img/mapthumbs/cartodb_dark.jpg",
         "attribution": "© OpenStreetMap contributors, © CARTO"
       },
       {
@@ -74,15 +86,24 @@
         "type": "xyz",
         "url": "http://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
         "projection": "EPSG:3857",
-        "thumbnail": "cartodb_positron.jpg",
+        "thumbnail": "img/mapthumbs/cartodb_positron.jpg",
         "attribution": "© OpenStreetMap contributors, © CARTO"
+      },
+      {
+        "name": "opentopomap",
+        "title": "OpenTopoMap",
+        "type": "xyz",
+        "url": "https://tile.opentopomap.org/{z}/{x}/{y}.png",
+        "projection": "EPSG:3857",
+        "thumbnail": "img/mapthumbs/opentopomap.jpg",
+        "attribution": "© OpenStreetMap contributors, © OpenTopoMap (CC-BY-SA)"
       },
       {
         "name": "osm",
         "title": "OpenStreetMap",
         "type": "osm",
         "source": "osm",
-        "thumbnail": "osm.jpg",
+        "thumbnail": "img/mapthumbs/osm.jpg",
         "attribution": "OpenStreetMap contributors"
       }
     ]

@@ -1,0 +1,64 @@
+.milsymb-size-slider-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.milsymb-size-btn.map-button {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    background: var(--panelBg, #fff);
+    color: var(--text, #333);
+    border: 1px solid var(--border, rgba(0,0,0,.2));
+    box-shadow: 0 1px 4px rgba(0,0,0,.3);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
+}
+
+.milsymb-size-btn.map-button:hover {
+    background: var(--hoverBg, #f0f0f0);
+}
+
+.milsymb-btn-icon {
+    display: block;
+    font-size: 16px;
+}
+
+.milsymb-size-popup {
+    position: absolute;
+    bottom: 0;
+    right: 40px;
+    z-index: 10000;
+    background: var(--panelBg, #fff);
+    color: var(--text, #333);
+    border: 1px solid var(--border, #ccc);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    padding: 10px 14px;
+    min-width: 180px;
+    white-space: nowrap;
+}
+
+.milsymb-size-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+}
+
+.milsymb-size-range {
+    width: 100%;
+    cursor: pointer;
+}
+
+.milsymb-size-ticks {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    opacity: 0.6;
+    margin-top: 2px;
+}

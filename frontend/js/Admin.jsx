@@ -9,6 +9,7 @@
 
 import React, {createContext, useCallback, useContext, useEffect, useReducer, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
+import {I18nProvider, useI18n} from './adminI18n';
 
 // ---------------------------------------------------------------------------
 // Costanti & Helpers
@@ -135,6 +136,30 @@ function AuthProvider({children}) {
 function useAuth() { return useContext(AuthCtx); }
 
 // ---------------------------------------------------------------------------
+// Hook: public API base URL (per link WMS esterni)
+// ---------------------------------------------------------------------------
+let _apiBaseUrlCache = null;
+
+function useApiBaseUrl() {
+    const [base, setBase] = useState(_apiBaseUrlCache || '');
+    useEffect(() => {
+        if (_apiBaseUrlCache) return;
+        fetch(`${API}/api/info`)
+            .then(r => r.ok ? r.json() : {})
+            .then(d => {
+                const url = (d.api_base_url || window.location.origin).replace(/\/+$/, '');
+                _apiBaseUrlCache = url;
+                setBase(url);
+            })
+            .catch(() => {
+                _apiBaseUrlCache = window.location.origin;
+                setBase(window.location.origin);
+            });
+    }, []);
+    return base;
+}
+
+// ---------------------------------------------------------------------------
 // Styles (inline, nessuna dipendenza esterna)
 // ---------------------------------------------------------------------------
 const S = {
@@ -233,6 +258,7 @@ function Modal({title, onClose, children}) {
 // ---------------------------------------------------------------------------
 function LoginForm({onForgot}) {
     const {login} = useAuth();
+    const {t, lang, setLang, LANGS} = useI18n();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [err, setErr] = useState('');
@@ -249,26 +275,41 @@ function LoginForm({onForgot}) {
     return (
         <div style={S.loginWrap}>
             <div style={S.card}>
-                <h2 style={S.h2}>Dufour.app – Gestione</h2>
+                <h2 style={S.h2}>{t('login.title')}</h2>
                 <form onSubmit={handleSubmit}>
-                    <label style={S.label}>Username</label>
+                    <label style={S.label}>{t('login.username')}</label>
                     <input style={S.input} value={username}
                            onChange={e => setUsername(e.target.value)} autoFocus required />
-                    <label style={S.label}>Password</label>
+                    <label style={S.label}>{t('login.password')}</label>
                     <input style={S.input} type="password" value={password}
                            onChange={e => setPassword(e.target.value)} required />
                     {err && <div style={S.error}>{err}</div>}
                     <Btn style={{...S.btnPrimary, width: '100%', padding: '9px'}}
                          type="submit" disabled={busy}>
-                        {busy ? 'Accesso…' : 'Accedi'}
+                        {busy ? t('login.submitting') : t('login.submit')}
                     </Btn>
                 </form>
                 <div style={{textAlign: 'center', marginTop: 16}}>
                     <span style={{fontSize: 13, color: '#7cb9e8', cursor: 'pointer',
                                   textDecoration: 'underline'}}
                           onClick={onForgot}>
-                        Password dimenticata?
+                        {t('login.forgot')}
                     </span>
+                </div>
+                <div style={{display:'flex', justifyContent:'center', gap:4, marginTop:16}}>
+                    {LANGS.map(l => (
+                        <button key={l.code}
+                                onClick={() => setLang(l.code)}
+                                title={l.label}
+                                style={{
+                                    background: lang === l.code ? '#354a6a' : 'transparent',
+                                    border: lang === l.code ? '1px solid #7cb9e8' : '1px solid transparent',
+                                    borderRadius: 4, padding: '2px 6px', cursor: 'pointer',
+                                    fontSize: 16, lineHeight: 1,
+                                }}>
+                            {l.flag}
+                        </button>
+                    ))}
                 </div>
             </div>
         </div>
@@ -279,6 +320,7 @@ function LoginForm({onForgot}) {
 // ForgotPasswordForm – richiesta email per reset
 // ---------------------------------------------------------------------------
 function ForgotPasswordForm({onBack}) {
+    const {t} = useI18n();
     const [email, setEmail] = useState('');
     const [err, setErr]     = useState('');
     const [sent, setSent]   = useState(false);
@@ -298,18 +340,15 @@ function ForgotPasswordForm({onBack}) {
         return (
             <div style={S.loginWrap}>
                 <div style={S.card}>
-                    <h2 style={S.h2}>📧 Controlla la tua email</h2>
-                    <p style={{color: '#9ba3af', fontSize: 14, lineHeight: 1.6}}>
-                        Se l'indirizzo <strong style={{color: '#e2e8f0'}}>{email}</strong> è
-                        associato a un account, riceverai un'email con un link per reimpostare
-                        la password.
-                    </p>
+                    <h2 style={S.h2}>{t('forgot.sent.title')}</h2>
+                    <p style={{color: '#9ba3af', fontSize: 14, lineHeight: 1.6}}
+                       dangerouslySetInnerHTML={{__html: t('forgot.sent.desc', {email})}} />
                     <p style={{color: '#9ba3af', fontSize: 13, marginTop: 12}}>
-                        Il link è valido per 30 minuti. Controlla anche la cartella spam.
+                        {t('forgot.sent.hint')}
                     </p>
                     <Btn style={{...S.btnSecondary, width: '100%', padding: '9px', marginTop: 20}}
                          onClick={onBack}>
-                        ← Torna al login
+                        {t('forgot.back')}
                     </Btn>
                 </div>
             </div>
@@ -319,26 +358,26 @@ function ForgotPasswordForm({onBack}) {
     return (
         <div style={S.loginWrap}>
             <div style={S.card}>
-                <h2 style={S.h2}>Password dimenticata</h2>
+                <h2 style={S.h2}>{t('forgot.title')}</h2>
                 <p style={{color: '#9ba3af', fontSize: 13, marginBottom: 20}}>
-                    Inserisci l'email associata al tuo account. Riceverai un link per reimpostare la password.
+                    {t('forgot.desc')}
                 </p>
                 <form onSubmit={handleSubmit}>
-                    <label style={S.label}>Email</label>
+                    <label style={S.label}>{t('forgot.email')}</label>
                     <input style={S.input} type="email" value={email}
                            onChange={e => setEmail(e.target.value)} autoFocus required
-                           placeholder="nome@esempio.com" />
+                           placeholder={t('forgot.placeholder')} />
                     {err && <div style={S.error}>{err}</div>}
                     <Btn style={{...S.btnPrimary, width: '100%', padding: '9px'}}
                          type="submit" disabled={busy}>
-                        {busy ? 'Invio…' : 'Invia link di reset'}
+                        {busy ? t('forgot.submitting') : t('forgot.submit')}
                     </Btn>
                 </form>
                 <div style={{textAlign: 'center', marginTop: 16}}>
                     <span style={{fontSize: 13, color: '#7cb9e8', cursor: 'pointer',
                                   textDecoration: 'underline'}}
                           onClick={onBack}>
-                        ← Torna al login
+                        {t('forgot.back')}
                     </span>
                 </div>
             </div>
@@ -350,6 +389,7 @@ function ForgotPasswordForm({onBack}) {
 // ResetPasswordForm – imposta nuova password con token dall'URL
 // ---------------------------------------------------------------------------
 function ResetPasswordForm({token, onDone}) {
+    const {t} = useI18n();
     const [password, setPassword]   = useState('');
     const [confirm, setConfirm]     = useState('');
     const [err, setErr]             = useState('');
@@ -358,13 +398,12 @@ function ResetPasswordForm({token, onDone}) {
 
     async function handleSubmit(e) {
         e.preventDefault();
-        if (password !== confirm) { setErr('Le password non corrispondono'); return; }
-        if (password.length < 6) { setErr('La password deve essere di almeno 6 caratteri'); return; }
+        if (password !== confirm) { setErr(t('reset.err.mismatch')); return; }
+        if (password.length < 6) { setErr(t('reset.err.short')); return; }
         setBusy(true); setErr('');
         try {
             await apiResetPassword(token, password);
             setSuccess(true);
-            // Pulisci il token dall'URL
             window.history.replaceState({}, '', '/admin');
         } catch (ex) { setErr(ex.message); }
         finally { setBusy(false); }
@@ -374,14 +413,13 @@ function ResetPasswordForm({token, onDone}) {
         return (
             <div style={S.loginWrap}>
                 <div style={S.card}>
-                    <h2 style={S.h2}>✅ Password reimpostata!</h2>
+                    <h2 style={S.h2}>{t('reset.success.title')}</h2>
                     <p style={{color: '#9ba3af', fontSize: 14, lineHeight: 1.6}}>
-                        La tua password è stata cambiata con successo.
-                        Ora puoi accedere con la nuova password.
+                        {t('reset.success.desc')}
                     </p>
                     <Btn style={{...S.btnPrimary, width: '100%', padding: '9px', marginTop: 20}}
                          onClick={onDone}>
-                        Vai al login
+                        {t('reset.success.action')}
                     </Btn>
                 </div>
             </div>
@@ -391,23 +429,23 @@ function ResetPasswordForm({token, onDone}) {
     return (
         <div style={S.loginWrap}>
             <div style={S.card}>
-                <h2 style={S.h2}>Nuova password</h2>
+                <h2 style={S.h2}>{t('reset.title')}</h2>
                 <p style={{color: '#9ba3af', fontSize: 13, marginBottom: 20}}>
-                    Scegli una nuova password per il tuo account.
+                    {t('reset.desc')}
                 </p>
                 <form onSubmit={handleSubmit}>
-                    <label style={S.label}>Nuova password</label>
+                    <label style={S.label}>{t('reset.password')}</label>
                     <input style={S.input} type="password" value={password}
                            onChange={e => setPassword(e.target.value)} autoFocus required
-                           minLength={6} placeholder="Almeno 6 caratteri" />
-                    <label style={S.label}>Conferma password</label>
+                           minLength={6} placeholder={t('reset.placeholder')} />
+                    <label style={S.label}>{t('reset.confirm')}</label>
                     <input style={S.input} type="password" value={confirm}
                            onChange={e => setConfirm(e.target.value)} required
-                           minLength={6} placeholder="Ripeti la password" />
+                           minLength={6} placeholder={t('reset.placeholder_confirm')} />
                     {err && <div style={S.error}>{err}</div>}
                     <Btn style={{...S.btnPrimary, width: '100%', padding: '9px'}}
                          type="submit" disabled={busy}>
-                        {busy ? 'Salvataggio…' : 'Reimposta password'}
+                        {busy ? t('reset.submitting') : t('reset.submit')}
                     </Btn>
                 </form>
             </div>
@@ -419,6 +457,7 @@ function ResetPasswordForm({token, onDone}) {
 // UserModal – Creazione/modifica utente (solo admin)
 // ---------------------------------------------------------------------------
 function UserModal({user: initial, onSave, onClose}) {
+    const {t} = useI18n();
     const isNew = !initial;
     const [form, setForm] = useState({
         username: initial?.username || '',
@@ -452,23 +491,23 @@ function UserModal({user: initial, onSave, onClose}) {
     }
 
     return (
-        <Modal title={isNew ? 'Nuovo utente' : `Modifica: ${initial.username}`} onClose={onClose}>
-            <label style={S.label}>Username</label>
+        <Modal title={isNew ? t('usermodal.new') : t('usermodal.edit', {name: initial.username})} onClose={onClose}>
+            <label style={S.label}>{t('usermodal.username')}</label>
             <input style={S.input} {...field('username')} disabled={!isNew} />
-            <label style={S.label}>Email</label>
+            <label style={S.label}>{t('usermodal.email')}</label>
             <input style={S.input} type="email" {...field('email')} />
-            <label style={S.label}>Ruolo</label>
+            <label style={S.label}>{t('usermodal.role')}</label>
             <select style={{...S.input, cursor: 'pointer'}} {...field('role')}>
                 <option value="user">user</option>
                 <option value="admin">admin</option>
             </select>
-            <label style={S.label}>{isNew ? 'Password' : 'Nuova password (lascia vuoto per non cambiare)'}</label>
+            <label style={S.label}>{isNew ? t('usermodal.password_new') : t('usermodal.password_edit')}</label>
             <input style={S.input} type="password" {...field('password')} />
             {err && <div style={S.error}>{err}</div>}
             <div style={{display: 'flex', gap: 8, justifyContent: 'flex-end'}}>
-                <Btn style={S.btnSecondary} onClick={onClose}>Annulla</Btn>
+                <Btn style={S.btnSecondary} onClick={onClose}>{t('usermodal.cancel')}</Btn>
                 <Btn style={S.btnPrimary}   onClick={handleSave} disabled={busy}>
-                    {busy ? 'Salvataggio…' : 'Salva'}
+                    {busy ? t('usermodal.saving') : t('usermodal.save')}
                 </Btn>
             </div>
         </Modal>
@@ -479,6 +518,7 @@ function UserModal({user: initial, onSave, onClose}) {
 // UploadProjectModal – caricamento progetto .qgz + companion files
 // ---------------------------------------------------------------------------
 function UploadProjectModal({onSave, onClose}) {
+    const {t} = useI18n();
     const [form, setForm] = useState({name: '', title: '', description: '', is_public: false});
     const [qgzFile, setQgzFile]       = useState(null);
     const [dataFiles, setDataFiles]   = useState([]);  // FileList → array
@@ -494,9 +534,9 @@ function UploadProjectModal({onSave, onClose}) {
     }
 
     async function handleUpload() {
-        if (!form.name.trim()) { setErr('Nome progetto obbligatorio'); return; }
-        if (!qgzFile) { setErr('Seleziona un file .qgz'); return; }
-        setBusy(true); setErr(''); setProgress('Caricamento in corso…');
+        if (!form.name.trim()) { setErr(t('upload.err.name')); return; }
+        if (!qgzFile) { setErr(t('upload.err.file')); return; }
+        setBusy(true); setErr(''); setProgress(t('upload.progress'));
         try {
             const fd = new FormData();
             fd.append('name', form.name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'));
@@ -507,7 +547,7 @@ function UploadProjectModal({onSave, onClose}) {
             for (const f of dataFiles) {
                 fd.append('data_files', f);
             }
-            setProgress('Upload e migrazione in corso… (può richiedere 30s)');
+            setProgress(t('upload.progress2'));
             const result = await apiUploadProject(fd);
             setProgress('');
             onSave(result);
@@ -518,30 +558,30 @@ function UploadProjectModal({onSave, onClose}) {
     }
 
     return (
-        <Modal title="📤 Carica progetto QGIS" onClose={onClose}>
-            <label style={S.label}>Nome progetto *</label>
+        <Modal title={t('upload.title')} onClose={onClose}>
+            <label style={S.label}>{t('upload.name')}</label>
             <input style={S.input} {...field('name')}
-                   placeholder="es. my_project (solo a-z, 0-9, _)" autoFocus />
+                   placeholder={t('upload.name_ph')} autoFocus />
 
-            <label style={S.label}>Titolo</label>
-            <input style={S.input} {...field('title')} placeholder="es. Carta Topografica 1:25000" />
+            <label style={S.label}>{t('upload.project_title')}</label>
+            <input style={S.input} {...field('title')} placeholder={t('upload.title_ph')} />
 
-            <label style={S.label}>Descrizione</label>
-            <input style={S.input} {...field('description')} placeholder="Opzionale" />
+            <label style={S.label}>{t('upload.desc')}</label>
+            <input style={S.input} {...field('description')} placeholder={t('upload.desc_ph')} />
 
             <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16}}>
                 <input type="checkbox" id="pub" checked={form.is_public}
                        onChange={e => setForm(f => ({...f, is_public: e.target.checked}))} />
                 <label htmlFor="pub" style={{...S.label, marginBottom: 0, cursor: 'pointer'}}>
-                    Pubblico (visibile a tutti)
+                    {t('upload.public')}
                 </label>
             </div>
 
-            <label style={S.label}>File QGIS (.qgz) *</label>
+            <label style={S.label}>{t('upload.qgz')}</label>
             <input type="file" accept=".qgz,.qgs" style={{...S.input, padding: '6px 10px'}}
                    onChange={e => setQgzFile(e.target.files[0] || null)} />
 
-            <label style={S.label}>File dati companion (GeoPackage, GeoJSON, Shapefile…)</label>
+            <label style={S.label}>{t('upload.data')}</label>
             <input type="file" multiple style={{...S.input, padding: '6px 10px'}}
                    accept=".gpkg,.geojson,.json,.shp,.shx,.dbf,.prj,.cpg,.csv,.tif,.tiff"
                    onChange={e => setDataFiles(Array.from(e.target.files))} />
@@ -563,9 +603,49 @@ function UploadProjectModal({onSave, onClose}) {
             )}
 
             <div style={{display: 'flex', gap: 8, justifyContent: 'flex-end'}}>
-                <Btn style={S.btnSecondary} onClick={onClose} disabled={busy}>Annulla</Btn>
+                <Btn style={S.btnSecondary} onClick={onClose} disabled={busy}>{t('upload.cancel')}</Btn>
                 <Btn style={S.btnPrimary} onClick={handleUpload} disabled={busy}>
-                    {busy ? 'Caricamento…' : '📤 Carica'}
+                    {busy ? t('upload.submitting') : t('upload.submit')}
+                </Btn>
+            </div>
+        </Modal>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ConfirmDeleteModal – conferma sicura prima di eliminare un progetto
+// L'utente deve digitare il nome del progetto per abilitare il bottone.
+// ---------------------------------------------------------------------------
+function ConfirmDeleteModal({projectName, onConfirm, onClose}) {
+    const {t} = useI18n();
+    const [typed, setTyped] = useState('');
+    const match = typed === projectName;
+
+    return (
+        <Modal title={t('delete.title')} onClose={onClose}>
+            <p style={{color:'#f87171', margin:'0 0 12px', fontSize:14, lineHeight:1.5}}
+               dangerouslySetInnerHTML={{__html:
+                   t('delete.desc', {name: projectName}) + '<br/>' + t('delete.irreversible')
+               }} />
+            <label style={S.label}>
+                {t('delete.prompt')}
+                <span style={{fontFamily:'monospace', color:'#fbbf24', marginLeft:4}}>{projectName}</span>
+            </label>
+            <input
+                style={{...S.input, borderColor: match ? '#4ade80' : undefined}}
+                value={typed}
+                onChange={e => setTyped(e.target.value)}
+                placeholder={projectName}
+                autoFocus
+            />
+            <div style={{display:'flex', gap:8, marginTop:16, justifyContent:'flex-end'}}>
+                <Btn style={S.btnSecondary} onClick={onClose}>{t('delete.cancel')}</Btn>
+                <Btn
+                    style={{...S.btnDanger, opacity: match ? 1 : 0.4, cursor: match ? 'pointer' : 'not-allowed'}}
+                    disabled={!match}
+                    onClick={() => { if (match) onConfirm(); }}
+                >
+                    {t('delete.confirm')}
                 </Btn>
             </div>
         </Modal>
@@ -576,6 +656,7 @@ function UploadProjectModal({onSave, onClose}) {
 // AdminUsers – gestione utenti
 // ---------------------------------------------------------------------------
 function AdminUsers() {
+    const {t} = useI18n();
     const [users, setUsers]   = useState([]);
     const [busy, setBusy]     = useState(true);
     const [modal, setModal]   = useState(null);  // null | 'create' | user-object
@@ -591,7 +672,7 @@ function AdminUsers() {
     useEffect(() => { load(); }, []);
 
     async function deleteUser(u) {
-        if (!confirm(`Eliminare l'utente "${u.username}"?`)) return;
+        if (!confirm(t('users.confirm_delete', {name: u.username}))) return;
         try { await apiFetch(`/api/admin/users/${u.id}`, {method: 'DELETE'}); load(); }
         catch (ex) { alert(ex.message); }
     }
@@ -601,20 +682,20 @@ function AdminUsers() {
     return (
         <div>
             <div style={{padding: '16px 24px 0', display: 'flex', justifyContent: 'flex-end'}}>
-                <Btn style={S.btnPrimary} onClick={() => setModal('create')}>+ Nuovo utente</Btn>
+                <Btn style={S.btnPrimary} onClick={() => setModal('create')}>{t('users.new')}</Btn>
             </div>
             <div style={S.tableWrap}>
                 <table style={S.table}>
                     <thead>
                         <tr>
-                            {['Username','Email','Ruolo','Attivo','Creato','Azioni'].map(h =>
+                            {[t('users.col.username'),t('users.col.email'),t('users.col.role'),t('users.col.active'),t('users.col.created'),t('users.col.actions')].map(h =>
                                 <th key={h} style={S.th}>{h}</th>)}
                         </tr>
                     </thead>
                     <tbody>
                         {busy && (
                             <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
-                                Caricamento…
+                                {t('loading')}
                             </td></tr>
                         )}
                         {!busy && users.map(u => (
@@ -631,10 +712,10 @@ function AdminUsers() {
                                 <td style={S.td}>{u.created_at ? u.created_at.slice(0,10) : '—'}</td>
                                 <td style={S.td}>
                                     <Btn style={{...S.btnSecondary, ...S.btnSmall, marginRight:6}}
-                                         onClick={() => setModal(u)}>Modifica</Btn>
+                                         onClick={() => setModal(u)}>{t('users.edit')}</Btn>
                                     <Btn style={{...S.btnDanger, ...S.btnSmall}}
                                          onClick={() => deleteUser(u)}
-                                         disabled={u.id === me?.id}>Elimina</Btn>
+                                         disabled={u.id === me?.id}>{t('users.delete')}</Btn>
                                 </td>
                             </tr>
                         ))}
@@ -653,10 +734,13 @@ function AdminUsers() {
 // AdminProjects – elenco globale progetti (admin)
 // ---------------------------------------------------------------------------
 function AdminProjects() {
+    const {t} = useI18n();
     const [projects, setProjects] = useState([]);
     const [busy, setBusy]         = useState(true);
     const [showUpload, setShowUpload] = useState(false);
     const [healthMap, setHealthMap] = useState({});
+    const [confirmDelete, setConfirmDelete] = useState(null);   // project name or null
+    const apiBase = useApiBaseUrl();
 
     async function load() {
         setBusy(true);
@@ -667,9 +751,8 @@ function AdminProjects() {
 
     useEffect(() => { load(); }, []);
 
-    async function deleteProject(name) {
-        if (!confirm(`Eliminare il progetto "${name}" e tutti i suoi dati?`)) return;
-        try { await apiDeleteProject(name, true); load(); }
+    async function doDelete(name) {
+        try { await apiDeleteProject(name, true); setConfirmDelete(null); load(); }
         catch (ex) { alert(ex.message); }
     }
 
@@ -686,20 +769,20 @@ function AdminProjects() {
     return (
         <div>
             <div style={{padding: '16px 24px 0', display: 'flex', justifyContent: 'flex-end'}}>
-                <Btn style={S.btnPrimary} onClick={() => setShowUpload(true)}>📤 Carica progetto</Btn>
+                <Btn style={S.btnPrimary} onClick={() => setShowUpload(true)}>{t('projects.upload')}</Btn>
             </div>
             <div style={S.tableWrap}>
                 <table style={S.table}>
                     <thead>
                         <tr>
-                            {['Nome','Titolo','Proprietario','CRS','Dimensione','Aggiornato','Azioni'].map(h =>
+                            {[t('projects.col.name'),t('projects.col.title'),t('projects.col.owner'),t('projects.col.crs'),t('projects.col.size'),t('projects.col.updated'),t('projects.col.actions')].map(h =>
                                 <th key={h} style={S.th}>{h}</th>)}
                         </tr>
                     </thead>
                     <tbody>
                         {busy && (
                             <tr><td colSpan={7} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
-                                Caricamento…
+                                {t('loading')}
                             </td></tr>
                         )}
                         {!busy && projects.map(p => {
@@ -720,10 +803,10 @@ function AdminProjects() {
                                     <td style={{...S.td, whiteSpace:'nowrap'}}>
                                         <div style={{display:'flex', gap:4, flexWrap:'wrap', alignItems:'center'}}>
                                             <Btn style={{...S.btnSecondary, ...S.btnSmall}}
-                                                 onClick={() => window.open(`/api/projects/${encodeURIComponent(p.name)}/wms?SERVICE=WMS&REQUEST=GetCapabilities`, '_blank')}
+                                                 onClick={() => window.open(`${apiBase}/api/projects/${encodeURIComponent(p.name)}/wms?SERVICE=WMS&REQUEST=GetCapabilities`, '_blank')}
                                                  title="WMS GetCapabilities">🌐 WMS</Btn>
                                             <Btn style={{...S.btnDanger, ...S.btnSmall}}
-                                                 onClick={() => deleteProject(p.name)}>🗑 Elimina</Btn>
+                                                 onClick={() => setConfirmDelete(p.name)}>{t('projects.delete')}</Btn>
                                             {!h && (
                                                 <Btn style={{...S.btnSecondary, ...S.btnSmall}}
                                                      onClick={() => checkHealth(p.name)}
@@ -738,7 +821,7 @@ function AdminProjects() {
                         })}
                         {!busy && projects.length === 0 && (
                             <tr><td colSpan={7} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
-                                Nessun progetto. Usa il pulsante "Carica progetto" per iniziare.
+                                {t('projects.empty')}
                             </td></tr>
                         )}
                     </tbody>
@@ -750,6 +833,13 @@ function AdminProjects() {
                     onClose={() => setShowUpload(false)}
                 />
             )}
+            {confirmDelete && (
+                <ConfirmDeleteModal
+                    projectName={confirmDelete}
+                    onConfirm={() => doDelete(confirmDelete)}
+                    onClose={() => setConfirmDelete(null)}
+                />
+            )}
         </div>
     );
 }
@@ -758,12 +848,13 @@ function AdminProjects() {
 // AdminDashboard
 // ---------------------------------------------------------------------------
 function AdminDashboard() {
+    const {t} = useI18n();
     const [tab, setTab] = useState('users');
 
     return (
         <div style={{flex: 1}}>
             <div style={S.tabs}>
-                {[['users','👥 Utenti'],['projects','🗺 Progetti']].map(([key, label]) => (
+                {[['users', t('tabs.users')],['projects', t('tabs.projects')]].map(([key, label]) => (
                     <div key={key} style={{...S.tab, ...(tab===key ? S.tabActive : {})}}
                          onClick={() => setTab(key)}>{label}</div>
                 ))}
@@ -795,10 +886,13 @@ function HealthBadge({health}) {
 // UserProjects – dashboard dell'utente
 // ---------------------------------------------------------------------------
 function UserProjects() {
+    const {t} = useI18n();
     const [projects, setProjects] = useState([]);
     const [busy, setBusy]         = useState(true);
     const [healthMap, setHealthMap] = useState({});
     const [showUpload, setShowUpload] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState(null);
+    const apiBase = useApiBaseUrl();
 
     const reload = () => {
         setBusy(true);
@@ -819,37 +913,37 @@ function UserProjects() {
         }
     }
 
-    async function handleDelete(name) {
-        if (!confirm(`Eliminare il progetto "${name}"?`)) return;
+    async function doDelete(name) {
         try {
             await apiDeleteProject(name, false);
+            setConfirmDelete(null);
             reload();
-        } catch (ex) { alert('Errore: ' + ex.message); }
+        } catch (ex) { alert(t('error') + ex.message); }
     }
 
     return (
         <div>
             <div style={{padding:'16px 24px 0', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                <span style={{color:'#9ba3af', fontSize:13}}>I progetti caricati nel tuo account.</span>
-                <Btn style={S.btnPrimary} onClick={() => setShowUpload(true)}>📤 Carica progetto</Btn>
+                <span style={{color:'#9ba3af', fontSize:13}}>{t('userprojects.desc')}</span>
+                <Btn style={S.btnPrimary} onClick={() => setShowUpload(true)}>{t('projects.upload')}</Btn>
             </div>
             <div style={S.tableWrap}>
                 <table style={S.table}>
                     <thead>
                         <tr>
-                            {['Nome','Titolo','CRS','Dimensione','Aggiornato','Azioni'].map(h =>
+                            {[t('projects.col.name'),t('projects.col.title'),t('projects.col.crs'),t('projects.col.size'),t('projects.col.updated'),t('projects.col.actions')].map(h =>
                                 <th key={h} style={S.th}>{h}</th>)}
                         </tr>
                     </thead>
                     <tbody>
                         {busy && (
                             <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
-                                Caricamento…
+                                {t('loading')}
                             </td></tr>
                         )}
                         {!busy && projects.map(p => {
                             const h = healthMap[p.name];
-                            const wmsUrl = `${window.location.origin}/api/ows/${encodeURIComponent(p.name)}?SERVICE=WMS&REQUEST=GetCapabilities`;
+                            const wmsUrl = `${apiBase}/api/projects/${encodeURIComponent(p.name)}/wms?SERVICE=WMS&REQUEST=GetCapabilities`;
                             return (
                                 <tr key={p.name}>
                                     <td style={S.td}>
@@ -869,7 +963,7 @@ function UserProjects() {
                                                 🌐 WMS
                                             </Btn>
                                             <Btn style={{...S.btnSecondary,...S.btnSmall}}
-                                                 onClick={() => handleDelete(p.name)}>
+                                                 onClick={() => setConfirmDelete(p.name)}>
                                                 🗑
                                             </Btn>
                                             {!h && (
@@ -887,7 +981,7 @@ function UserProjects() {
                         })}
                         {!busy && projects.length === 0 && (
                             <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
-                                Nessun progetto.
+                                {t('userprojects.empty')}
                             </td></tr>
                         )}
                     </tbody>
@@ -899,6 +993,13 @@ function UserProjects() {
                     onSave={() => { setShowUpload(false); reload(); }}
                 />
             )}
+            {confirmDelete && (
+                <ConfirmDeleteModal
+                    projectName={confirmDelete}
+                    onConfirm={() => doDelete(confirmDelete)}
+                    onClose={() => setConfirmDelete(null)}
+                />
+            )}
         </div>
     );
 }
@@ -907,10 +1008,11 @@ function UserProjects() {
 // UserDashboard
 // ---------------------------------------------------------------------------
 function UserDashboard() {
+    const {t} = useI18n();
     return (
         <div style={{flex: 1}}>
             <div style={S.tabs}>
-                <div style={{...S.tab, ...S.tabActive}}>🗺 I miei progetti</div>
+                <div style={{...S.tab, ...S.tabActive}}>{t('tabs.myprojects')}</div>
             </div>
             <UserProjects />
         </div>
@@ -922,6 +1024,7 @@ function UserDashboard() {
 // ---------------------------------------------------------------------------
 function AppShell() {
     const {user, loading, logout} = useAuth();
+    const {t, lang, setLang, LANGS} = useI18n();
     // 'login' | 'forgot' | null (when authenticated)
     const [view, setView] = useState('login');
 
@@ -932,7 +1035,7 @@ function AppShell() {
     if (loading) {
         return (
             <div style={{...S.loginWrap, flex: 1, color:'#9ba3af', fontSize:14}}>
-                Caricamento…
+                {t('loading')}
             </div>
         );
     }
@@ -962,13 +1065,29 @@ function AppShell() {
         <>
             <div style={S.header}>
                 <span style={S.logo}>🗺 Dufour.app</span>
-                <span style={{color:'#9ba3af', fontSize:13}}>Pannello di gestione</span>
+                <span style={{color:'#9ba3af', fontSize:13}}>{t('header.subtitle')}</span>
                 <div style={S.user}>
+                    {/* Language selector */}
+                    <div style={{display:'flex', gap:2}}>
+                        {LANGS.map(l => (
+                            <button key={l.code}
+                                    onClick={() => setLang(l.code)}
+                                    title={l.label}
+                                    style={{
+                                        background: lang === l.code ? '#354a6a' : 'transparent',
+                                        border: lang === l.code ? '1px solid #7cb9e8' : '1px solid transparent',
+                                        borderRadius: 4, padding: '2px 6px', cursor: 'pointer',
+                                        fontSize: 16, lineHeight: 1,
+                                    }}>
+                                {l.flag}
+                            </button>
+                        ))}
+                    </div>
                     <span>{user.username}</span>
                     <span style={S.badge}>{user.role}</span>
-                    <Btn style={S.btnSecondary} onClick={logout}>Esci</Btn>
+                    <Btn style={S.btnSecondary} onClick={logout}>{t('header.logout')}</Btn>
                     <Btn style={S.btnSecondary} onClick={() => window.location.href='/'}>
-                        ← Mappa
+                        {t('header.map')}
                     </Btn>
                 </div>
             </div>
@@ -984,12 +1103,14 @@ const spinKeyframes = `@keyframes spin { from { transform: rotate(0deg); } to { 
 
 function AdminApp() {
     return (
+        <I18nProvider>
         <AuthProvider>
             <style dangerouslySetInnerHTML={{__html: spinKeyframes}} />
             <div style={S.page}>
                 <AppShell />
             </div>
         </AuthProvider>
+        </I18nProvider>
     );
 }
 

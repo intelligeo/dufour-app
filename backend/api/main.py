@@ -587,8 +587,8 @@ async def upload_and_migrate_project(
             # Store layer metadata in public.project_layers (central catalog)
             with db.get_engine().connect() as conn:
                 for rec in layer_records:
-                    # Plugin layers (e.g. KadasMilxLayer) are handled by the
-                    # MilSymb pipeline and have no meaningful catalog entry.
+                    # Skip generic plugin layers — milsymb layers are inserted
+                    # below with richer metadata from the MilSymb pipeline.
                     if rec.layer_type == 'plugin':
                         continue
                     conn.execute(text("""
@@ -614,6 +614,46 @@ async def upload_and_migrate_project(
                         'crs': rec.crs,
                         'features_count': rec.features_count,
                     })
+
+                # ── MilSymb layers: one project_layers row per KadasMilxLayer ──
+                # Each maplayer[@type='plugin'][@name='KadasMilxLayer'] in the
+                # .qgz becomes a separate project_layers row so the layer tree
+                # and catalog reflect the original project structure.
+                try:
+                    from services.milsymb_service import extract_milsymb_layers_from_qgz
+                    milsymb_layers = extract_milsymb_layers_from_qgz(qgz_bytes)
+                    for ml in milsymb_layers:
+                        conn.execute(text("""
+                            INSERT INTO project_layers (
+                                id, project_id, layer_name, layer_type,
+                                geometry_type, source_type, table_name, datasource,
+                                crs, features_count
+                            )
+                            VALUES (
+                                :id, :project_id, :layer_name, :layer_type,
+                                :geometry_type, :source_type, :table_name, :datasource,
+                                :crs, :features_count
+                            )
+                        """), {
+                            'id': str(uuid.uuid4()),
+                            'project_id': project_id,
+                            'layer_name': ml.title,
+                            'layer_type': 'milsymb',
+                            'geometry_type': 'Mixed',
+                            'source_type': 'milsymb',
+                            'table_name': '',
+                            'datasource': f'milsymb://{ml.layer_id}',
+                            'crs': ml.crs,
+                            'features_count': len(ml.features),
+                        })
+                    if milsymb_layers:
+                        logger.info(
+                            f"Registered {len(milsymb_layers)} MilSymb layer(s) "
+                            f"in project_layers for '{name}'"
+                        )
+                except Exception as milsymb_err:
+                    logger.warning(f"MilSymb project_layers registration failed: {milsymb_err}")
+
                 conn.commit()
             
             return {
@@ -1219,6 +1259,26 @@ async def get_status():
         return status
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/info", tags=["system"])
+async def get_info(request: Request):
+    """Return public-facing metadata (API base URL, version, etc.).
+
+    The frontend uses ``api_base_url`` to build absolute WMS/OWS links that
+    work even when the user copies them outside the browser (e.g. into QGIS
+    Desktop).  The value is derived the same way as in ``/api/themes.json``:
+      1. ``X-Forwarded-Host`` header set by the reverse-proxy, or
+      2. ``API_PUBLIC_URL`` environment variable, or
+      3. the request's own ``base_url`` (fallback for local dev).
+    """
+    forwarded_host  = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+    if forwarded_host:
+        api_base_url = f"{forwarded_proto}://{forwarded_host}"
+    else:
+        api_base_url = os.getenv("API_PUBLIC_URL", str(request.base_url).rstrip("/"))
+    return {"api_base_url": api_base_url.rstrip("/")}
 
 
 # ==================== MILITARY SYMBOL ENDPOINTS ====================

@@ -207,6 +207,7 @@ class QWCService:
                         {"name": "arcgis_world_imagery"},
                         {"name": "cartodb_dark_matter"},
                         {"name": "cartodb_positron"},
+                        {"name": "opentopomap"},
                         {"name": "osm"}
                     ],
                     "thumbnail": f"../api/projects/{project_name}/thumbnail",
@@ -275,6 +276,7 @@ class QWCService:
                         {"name": "arcgis_world_imagery"},
                         {"name": "cartodb_dark_matter"},
                         {"name": "cartodb_positron"},
+                        {"name": "opentopomap"},
                         {"name": "osm"}
                     ],
                     "thumbnail": f"../api/projects/{theme_name}/thumbnail"
@@ -304,6 +306,7 @@ class QWCService:
                     {"name": "arcgis_world_imagery"},
                     {"name": "cartodb_dark_matter"},
                     {"name": "cartodb_positron"},
+                    {"name": "opentopomap"},
                     {"name": "osm"}
                 ],
                 "thumbnail": "img/mapthumbs/default.jpg",
@@ -376,7 +379,7 @@ class QWCService:
                 "type": "xyz",
                 "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
                 "projection": "EPSG:3857",
-                "thumbnail": "arcgis_imagery.jpg",
+                "thumbnail": "img/mapthumbs/arcgis_imagery.jpg",
                 "attribution": "Esri, DigitalGlobe, GeoEye, Earthstar Geographics"
             },
             {
@@ -385,7 +388,7 @@ class QWCService:
                 "type": "xyz",
                 "url": "http://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
                 "projection": "EPSG:3857",
-                "thumbnail": "cartodb_dark.jpg",
+                "thumbnail": "img/mapthumbs/cartodb_dark.jpg",
                 "attribution": "© OpenStreetMap contributors, © CARTO"
             },
             {
@@ -394,15 +397,24 @@ class QWCService:
                 "type": "xyz",
                 "url": "http://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
                 "projection": "EPSG:3857",
-                "thumbnail": "cartodb_positron.jpg",
+                "thumbnail": "img/mapthumbs/cartodb_positron.jpg",
                 "attribution": "© OpenStreetMap contributors, © CARTO"
+            },
+            {
+                "name": "opentopomap",
+                "title": "OpenTopoMap",
+                "type": "xyz",
+                "url": "https://tile.opentopomap.org/{z}/{x}/{y}.png",
+                "projection": "EPSG:3857",
+                "thumbnail": "img/mapthumbs/opentopomap.jpg",
+                "attribution": "© OpenStreetMap contributors, © OpenTopoMap (CC-BY-SA)"
             },
             {
                 "name": "osm",
                 "title": "OpenStreetMap",
                 "type": "osm",
                 "source": "osm",
-                "thumbnail": "osm.jpg",
+                "thumbnail": "img/mapthumbs/osm.jpg",
                 "attribution": "OpenStreetMap contributors"
             }
         ]

@@ -125,7 +125,8 @@
             {"key": "Print", "icon": "print"},
             {"key": "MapExport", "icon": "rasterexport"},
             {"key": "Help", "icon": "info"},
-            {"key": "ExternalLink", "icon": "link", "url": "https://www.intelligeo.ch/"}
+            {"key": "ExternalLink", "icon": "link", "url": "https://www.intelligeo.ch/"},
+            {"key": "AdminLink", "icon": "link", "url": "#/admin"},
           ],
           "toolbarItems": [
             {"key": "Measure", "mode": "LineString", "icon": "measure_line"},
@@ -153,6 +154,12 @@
           "displayScales": true,
           "viewertitleUrl": "",
           "termsUrl": ""
+        }
+      },
+      {
+        "name": "MilSymbSizeSlider",
+        "cfg": {
+          "position": 5
         }
       },
       {

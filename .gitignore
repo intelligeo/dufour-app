@@ -63,6 +63,11 @@ build/
 *.shp
 *.fgb
 
+# Ancillary
+qgis-server/projects/*.qgz
+qgis-server/projects/*.qgz~
+qgis-server/projects/*.gpkg
+
 # Docker
 .dockerignore
 

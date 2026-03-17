@@ -66,6 +66,7 @@ import SnappingSupport from 'qwc2/plugins/map/SnappingSupport';
 import BufferSupport from 'qwc2/plugins/redlining/RedliningBufferSupport';
 
 import MilSymbSupport from './plugins/MilSymbSupport';
+import MilSymbSizeSlider from './plugins/MilSymbSizeSlider';
 
 import defaultLocaleData from '../static/translations/en-US.json';
 import {customAttributeCalculator, attributeTransform, customExporters} from './IdentifyExtensions';
@@ -177,7 +178,8 @@ export default {
                 FullscreenSwitcher: FullscreenSwitcher
             }),
             ZoomInPlugin: ZoomInPlugin,
-            ZoomOutPlugin: ZoomOutPlugin
+            ZoomOutPlugin: ZoomOutPlugin,
+            MilSymbSizeSliderPlugin: MilSymbSizeSlider
         },
         cfg: {
             BottomBarPlugin: {

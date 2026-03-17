@@ -96,10 +96,15 @@ class MilSymbSupport extends React.Component {
         super(props);
         // Map of layer title → ol.layer.Vector
         this.olLayers = {};
+        // Current symbol size (updated by MilSymbSizeSlider via CustomEvent)
+        this.symbolSize = 40;
+        // Store symbolBaseUrl per layer for re-styling
+        this.layerMeta = {};
     }
 
     componentDidMount() {
         this.syncLayers();
+        window.addEventListener('milsymb-size-change', this.onSizeChange);
     }
 
     componentDidUpdate(prevProps) {
@@ -111,7 +116,23 @@ class MilSymbSupport extends React.Component {
 
     componentWillUnmount() {
         this.removeLayers();
+        window.removeEventListener('milsymb-size-change', this.onSizeChange);
     }
+
+    /* ── size change handler ─────────────────────────────────── */
+
+    onSizeChange = (ev) => {
+        const newSize = ev.detail?.size;
+        if (typeof newSize !== 'number') return;
+        this.symbolSize = newSize;
+        // Re-apply style on all milsymb layers
+        Object.entries(this.olLayers).forEach(([title, layer]) => {
+            const meta = this.layerMeta[title];
+            if (!meta) return;
+            const styleFn = this.buildStyleFn(meta.symbolBaseUrl, newSize, meta.affiliation, meta.lineWidth);
+            layer.setStyle(styleFn);
+        });
+    };
 
     /* ── layer lifecycle ─────────────────────────────────────── */
 
@@ -122,6 +143,19 @@ class MilSymbSupport extends React.Component {
             }
         });
         this.olLayers = {};
+        this.layerMeta = {};
+    };
+
+    /* ── style factory ───────────────────────────────────────── */
+
+    buildStyleFn = (symbolBaseUrl, size, affiliation, lineWidth) => {
+        return (feature) => {
+            const geomType = feature.getGeometry()?.getType();
+            if (geomType === 'Point' || geomType === 'MultiPoint') {
+                return pointStyleForFeature(feature, symbolBaseUrl, size);
+            }
+            return linePolyStyle(affiliation, lineWidth);
+        };
     };
 
     syncLayers = () => {
@@ -159,17 +193,14 @@ class MilSymbSupport extends React.Component {
             }
 
             const affiliation = (geojson.metadata?.affiliation) || mlDef.affiliation || 'unknown';
-            const defaultSize = mlDef.symbolSize || 40;
+            const defaultSize = this.symbolSize || mlDef.symbolSize || 40;
             const lw = mlDef.lineWidth || 3;
 
+            // Store meta so we can re-style on size change
+            this.layerMeta[mlDef.title] = {symbolBaseUrl, affiliation, lineWidth: lw};
+
             // Build the OL style function
-            const styleFn = (feature) => {
-                const geomType = feature.getGeometry()?.getType();
-                if (geomType === 'Point' || geomType === 'MultiPoint') {
-                    return pointStyleForFeature(feature, symbolBaseUrl, defaultSize);
-                }
-                return linePolyStyle(affiliation, lw);
-            };
+            const styleFn = this.buildStyleFn(symbolBaseUrl, defaultSize, affiliation, lw);
 
             // Read features.  GeoJSON is in EPSG:4326, reproject to map CRS.
             const format = new ol.format.GeoJSON();
