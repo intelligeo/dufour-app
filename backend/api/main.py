@@ -330,18 +330,12 @@ async def get_project(project_name: str):
 
 @app.post("/api/projects", tags=["projects"])
 async def upload_and_migrate_project(
+    request: Request,
     name: str = Form(..., description="Project identifier (lowercase, alphanumeric, underscore)", example="my_project"),
     title: Optional[str] = Form(None, description="Display title", example="My Awesome Project"),
     description: Optional[str] = Form(None, description="Project description"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
-    data_files: List[UploadFile] = File(
-        default=[],
-        description="Optional companion data files referenced by the project "
-                    "(.gpkg, .geojson, .shp, .fgb, .csv). "
-                    "Can be sent once per file; one or many files accepted. "
-                    "Omit the field entirely (or do not include -F data_files) when there are no companion files."
-    )
 ):
     """
     # Upload QGIS Project
@@ -421,14 +415,19 @@ async def upload_and_migrate_project(
     }
 
     try:
-        # Filter out empty-filename entries sent by Swagger UI.
+        # Extract companion data_files from multipart form manually
+        # (FastAPI + Pydantic v2 has issues with List[UploadFile] in multipart)
+        form = await request.form()
+        data_files_raw = form.getlist("data_files")
         valid_data_files = [
-            df for df in data_files
+            df for df in data_files_raw
             if isinstance(df, UploadFile) and df.filename
         ]
 
         logger.info(
             f"Upload request: name={name}, "
+            f"form_keys={list(form.keys())}, "
+            f"data_files_raw_count={len(data_files_raw)}, "
             f"companion_files={[df.filename for df in valid_data_files]}"
         )
 
@@ -587,7 +586,7 @@ async def upload_and_migrate_project(
                     "qgz_size": len(qgz_bytes)
                 },
                 "debug": {
-                    "data_files_received": len(data_files),
+                    "data_files_raw_count": len(data_files_raw),
                     "valid_data_files": [df.filename for df in valid_data_files],
                     "companion_paths": [str(p) for p in companion_paths],
                 },
