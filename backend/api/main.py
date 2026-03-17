@@ -213,6 +213,11 @@ async def run_db_migrations():
 async def global_exception_handler(request, exc):
     from fastapi.responses import JSONResponse
     import traceback
+
+    # Let HTTPException flow to the dedicated handler — Starlette dispatches
+    # the most-specific handler, but for safety we re-raise explicitly.
+    if isinstance(exc, HTTPException):
+        raise exc
     
     # Log the full error for debugging
     print(f"Global error handler caught: {type(exc).__name__}: {str(exc)}")
