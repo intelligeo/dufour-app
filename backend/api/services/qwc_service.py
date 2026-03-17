@@ -312,7 +312,7 @@ class QWCService:
         browser never makes a cross-origin request to wmts.geo.admin.ch.
         URL template follows the official docs.geo.admin.ch REST schema:
           /1.0.0/<LayerBodId>/default/<Time>/<TileMatrixSet>/<z>/<x>/<y>.<ext>
-        For EPSG:3857 the TileMatrixSet identifier is '3857_26'.
+        For EPSG:3857 the TileMatrixSet (EPSG) identifier is '3857'.
         Reference: https://docs.geo.admin.ch/visualize-data/wmts.html
         """
         return [
@@ -321,7 +321,7 @@ class QWCService:
                 "title": "swisstopo Maps",
                 "type": "xyz",
                 # Direct URL to wmts.geo.admin.ch — serves Access-Control-Allow-Origin: * natively
-                "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857_26/{z}/{x}/{y}.jpeg",
+                "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
                 "projection": "EPSG:3857",
                 "minZoom": 0,
                 "maxZoom": 17,
