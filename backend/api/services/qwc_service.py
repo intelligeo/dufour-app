@@ -216,6 +216,28 @@ class QWCService:
                 # "no sublayers" which hides the layer tree entirely.
                 if sublayers:
                     item["sublayers"] = sublayers
+
+                # ── MilX overlay layers (KadasMilxLayer) ──────────────────
+                try:
+                    from services.milx_service import get_milx_layers_for_project
+                    milx_layers = get_milx_layers_for_project(project_name)
+                    if milx_layers:
+                        item["milxLayers"] = [
+                            {
+                                "title": ml.title,
+                                "affiliation": ml.affiliation,
+                                "featureCount": len(ml.features),
+                                "symbolSize": ml.symbol_size,
+                                "lineWidth": ml.line_width,
+                                "geojsonUrl": f"/api/projects/{project_name}/milx/{ml.title.replace(' ', '_')}.geojson",
+                                "symbolBaseUrl": "/api/symbols",
+                            }
+                            for ml in milx_layers
+                        ]
+                        logger.info(f"themes: {project_name} has {len(milx_layers)} MilX layer(s)")
+                except Exception as milx_err:
+                    logger.debug(f"themes: MilX extraction skipped for {project_name}: {milx_err}")
+
                 items.append(item)
             except Exception as e:
                 logger.warning(f"Failed to build theme for project {project.get('name')}: {e}")

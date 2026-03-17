@@ -1,16 +1,19 @@
 """
 QGZ Parser Service
 Extracts and parses QGIS project files (.qgz)
-Identifies layers, datasources, and prepares for PostGIS migration
+Identifies layers, datasources, and prepares for PostGIS migration.
+Supports extraction of KadasMilxLayer plugin layers (military symbols).
 """
 import io
+import json
+import re
 import zipfile
 import tempfile
 import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,6 +44,54 @@ class ProjectInfo:
     extent: Tuple[float, float, float, float]  # xmin, ymin, xmax, ymax
     layers: List[LayerInfo]
     qgz_size: int  # Original file size in bytes
+
+
+# ── MilX (military symbol) dataclasses ────────────────────────────────────────
+
+@dataclass
+class MilxFeature:
+    """A single military symbol / tactical graphic extracted from KadasMilxItem"""
+    sidc: str                           # MIL-STD-2525C SIDC  e.g. "SFGPUC-----A--G"
+    military_name: str                  # Human label  e.g. "gren team DELTA"
+    geometry_type: str                  # "Point", "LineString", "Polygon"
+    coordinates: List[List[float]]      # [[lon, lat], …]  WGS 84
+    attributes: Dict[str, str] = field(default_factory=dict)   # MSS XML attrs {T: …, XE: …}
+    symbol_scale: float = 1.0
+
+
+@dataclass
+class MilxLayerInfo:
+    """A KadasMilxLayer with its contained features"""
+    layer_id: str
+    title: str                          # e.g. "BLUE FORCE"
+    affiliation: str                    # "friendly" / "hostile" / "neutral" / "unknown"
+    crs: str                            # "EPSG:4326"
+    extent: Optional[Tuple[float, float, float, float]] = None
+    features: List[MilxFeature] = field(default_factory=list)
+    symbol_size: int = 60
+    line_width: int = 2
+
+
+# ── Affiliation helpers ───────────────────────────────────────────────────────
+
+# Second character of 2525C SIDC → affiliation
+_AFFILIATION_MAP_2525C = {
+    'F': 'friendly', 'A': 'friendly', 'D': 'friendly', 'M': 'friendly',
+    'H': 'hostile', 'S': 'hostile', 'J': 'hostile', 'K': 'hostile',
+    'N': 'neutral', 'L': 'neutral',
+    'P': 'unknown', 'U': 'unknown', 'G': 'unknown', 'W': 'unknown',
+}
+
+def _guess_affiliation(features: List[MilxFeature]) -> str:
+    """Guess layer affiliation from the majority SIDC second-character."""
+    counts: Dict[str, int] = {}
+    for f in features:
+        if len(f.sidc) >= 2:
+            aff = _AFFILIATION_MAP_2525C.get(f.sidc[1].upper(), 'unknown')
+            counts[aff] = counts.get(aff, 0) + 1
+    if not counts:
+        return 'unknown'
+    return max(counts, key=counts.get)  # type: ignore[arg-type]
 
 
 class QGZParser:
@@ -212,6 +263,142 @@ class QGZParser:
         
         logger.info(f"Parsed {len(layers)} layers")
         return layers
+
+    # ── MilX (military symbol) parsing ────────────────────────────────────────
+
+    def parse_milx_layers(self) -> List[MilxLayerInfo]:
+        """
+        Extract KadasMilxLayer plugin layers and their MapItem features.
+
+        Each ``<maplayer type="plugin" name="KadasMilxLayer">`` may contain
+        one or more ``<MapItem name="KadasMilxItem">`` whose CDATA holds a
+        JSON payload with SIDC, coordinates and attributes.
+
+        Returns:
+            List of MilxLayerInfo (empty if no MilX layers present).
+        """
+        if not self.root:
+            raise ValueError("Must call parse_xml() first")
+
+        milx_layers: List[MilxLayerInfo] = []
+
+        for ml in self.root.findall('.//maplayer'):
+            if ml.get('type') != 'plugin' or ml.get('name') != 'KadasMilxLayer':
+                continue
+
+            # Layer metadata
+            id_elem = ml.find('id')
+            layer_id = id_elem.text if id_elem is not None and id_elem.text else ''
+            title = ml.get('title', '') or ''
+            if not title:
+                ln = ml.find('layername')
+                title = ln.text if ln is not None and ln.text else layer_id
+
+            crs_elem = ml.find('.//spatialrefsys/authid')
+            crs = crs_elem.text if crs_elem is not None and crs_elem.text else 'EPSG:4326'
+
+            symbol_size = int(ml.get('milx_symbol_size', '60') or '60')
+            line_width = int(ml.get('milx_line_width', '2') or '2')
+
+            # Extent
+            extent: Optional[Tuple[float, float, float, float]] = None
+            ext_el = ml.find('extent')
+            if ext_el is not None:
+                try:
+                    extent = (
+                        float(ext_el.findtext('xmin', '0')),
+                        float(ext_el.findtext('ymin', '0')),
+                        float(ext_el.findtext('xmax', '0')),
+                        float(ext_el.findtext('ymax', '0')),
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+            # Parse MapItems
+            features: List[MilxFeature] = []
+            for mi in ml.findall('MapItem'):
+                if mi.get('name') != 'KadasMilxItem':
+                    continue
+                feat = self._parse_milx_item(mi)
+                if feat:
+                    features.append(feat)
+
+            affiliation = _guess_affiliation(features) if features else 'unknown'
+
+            milx_layers.append(MilxLayerInfo(
+                layer_id=layer_id,
+                title=title,
+                affiliation=affiliation,
+                crs=crs,
+                extent=extent,
+                features=features,
+                symbol_size=symbol_size,
+                line_width=line_width,
+            ))
+            logger.info(
+                f"MilX layer '{title}': {len(features)} features, "
+                f"affiliation={affiliation}"
+            )
+
+        return milx_layers
+
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_milx_item(mi_elem: ET.Element) -> Optional[MilxFeature]:
+        """Parse a single ``<MapItem name="KadasMilxItem">`` element."""
+        raw = mi_elem.text
+        if not raw:
+            return None
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("MilX MapItem: failed to decode JSON payload")
+            return None
+
+        props = data.get('props', {})
+        state = data.get('state', {})
+
+        # ── SIDC ──
+        mss_string = props.get('mssString', '')
+        sidc = ''
+        mss_attrs: Dict[str, str] = {}
+        # mssString is a mini-XML like:
+        #   <Symbol ID="SFGPUC-----A--G"><Attribute ID="T">DELTA</Attribute></Symbol>
+        if mss_string:
+            m = re.search(r'ID="([^"]+)"', mss_string)
+            if m:
+                sidc = m.group(1)
+            for attr_m in re.finditer(
+                r'<Attribute\s+ID="([^"]+)">(.*?)</Attribute>', mss_string
+            ):
+                mss_attrs[attr_m.group(1)] = attr_m.group(2)
+
+        if not sidc:
+            return None
+
+        # ── Geometry ──
+        points = state.get('points', [])
+        if not points:
+            return None
+
+        sym_type = props.get('symbolType', 'Other')
+        if sym_type in ('Other', 'Point') or len(points) == 1:
+            geom_type = 'Point'
+        elif sym_type == 'Polygon' or (len(points) > 2 and points[-1] == points[-2]):
+            geom_type = 'Polygon'
+        else:
+            geom_type = 'LineString'
+
+        return MilxFeature(
+            sidc=sidc,
+            military_name=props.get('militaryName', ''),
+            geometry_type=geom_type,
+            coordinates=points,   # [[lon, lat], ...]
+            attributes=mss_attrs,
+            symbol_scale=props.get('symbolScale', 1.0),
+        )
         
     def _parse_layer_element(self, layer_elem: ET.Element) -> Optional[LayerInfo]:
         """

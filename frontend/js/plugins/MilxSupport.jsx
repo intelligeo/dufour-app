@@ -1,0 +1,202 @@
+/**
+ * MilxSupport – Map support plugin for MilX military symbol layers.
+ *
+ * When the active QWC2 theme contains a `milxLayers` array (injected by
+ * qwc_service.py from KadasMilxLayer data), this component:
+ *   1. Fetches GeoJSON for each MilX layer from the backend API.
+ *   2. Renders Point features with milsymbol SVG icons (via /api/symbols/).
+ *   3. Renders LineString/Polygon features with affiliation-coloured OL styles.
+ *   4. Manages layer lifecycle (add/remove) when the theme changes.
+ *
+ * Registration:  pass as a MapPlugin tool in appConfig.js, e.g.
+ *   MapPlugin({ ..., MilxSupport: MilxSupport })
+ */
+
+import React from 'react';
+import {connect} from 'react-redux';
+import ol from 'openlayers';
+import PropTypes from 'prop-types';
+import axios from 'axios';
+import ConfigUtils from 'qwc2/utils/ConfigUtils';
+
+/* ── Affiliation → colour mapping ────────────────────────────── */
+const AFFILIATION_COLORS = {
+    friendly: [0, 100, 220, 1],      // blue
+    hostile:  [220, 30, 30, 1],      // red
+    neutral:  [0, 180, 0, 1],       // green
+    unknown:  [230, 200, 0, 1]      // yellow
+};
+
+function affiliationColor(affiliation) {
+    return AFFILIATION_COLORS[(affiliation || '').toLowerCase()] || AFFILIATION_COLORS.unknown;
+}
+
+/* ── OL style factories ──────────────────────────────────────── */
+
+/**
+ * Build an ol.style.Style for a milsymbol Point feature.
+ * The icon is loaded lazily from /api/symbols/{SIDC}.svg
+ */
+function pointStyleForFeature(feature, symbolBaseUrl, defaultSize) {
+    const sidc = feature.get('sidc') || '';
+    if (!sidc) return null;
+
+    const size = defaultSize || 40;
+    const uniqueDesignation = feature.get('uniqueDesignation') || '';
+
+    let url = `${symbolBaseUrl}/${sidc}.svg?size=${size}`;
+    if (uniqueDesignation) {
+        url += `&uniqueDesignation=${encodeURIComponent(uniqueDesignation)}`;
+    }
+
+    return new ol.style.Style({
+        image: new ol.style.Icon({
+            src: url,
+            scale: 1,
+            anchor: [0.5, 0.5],
+            anchorXUnits: 'fraction',
+            anchorYUnits: 'fraction',
+            imgSize: undefined  // let OL detect from SVG
+        }),
+        // Label with uniqueDesignation below the icon
+        text: uniqueDesignation ? new ol.style.Text({
+            text: uniqueDesignation,
+            offsetY: size / 2 + 10,
+            font: 'bold 11px sans-serif',
+            fill: new ol.style.Fill({color: '#333'}),
+            stroke: new ol.style.Stroke({color: '#fff', width: 3})
+        }) : undefined
+    });
+}
+
+/**
+ * Build an ol.style.Style for LineString / Polygon tactical graphics.
+ */
+function linePolyStyle(affiliation, lineWidth) {
+    const color = affiliationColor(affiliation);
+    const fill = [...color.slice(0, 3), 0.15];
+    return new ol.style.Style({
+        stroke: new ol.style.Stroke({color: color, width: lineWidth || 3}),
+        fill: new ol.style.Fill({color: fill})
+    });
+}
+
+
+/**
+ * MilxSupport map-support plugin.
+ */
+class MilxSupport extends React.Component {
+    static propTypes = {
+        map: PropTypes.object,        // injected by OlMap
+        projection: PropTypes.string, // injected by OlMap
+        theme: PropTypes.object       // from redux
+    };
+
+    constructor(props) {
+        super(props);
+        // Map of layer title → ol.layer.Vector
+        this.olLayers = {};
+    }
+
+    componentDidMount() {
+        this.syncLayers();
+    }
+
+    componentDidUpdate(prevProps) {
+        // Re-sync when theme changes
+        if (this.props.theme !== prevProps.theme) {
+            this.syncLayers();
+        }
+    }
+
+    componentWillUnmount() {
+        this.removeLayers();
+    }
+
+    /* ── layer lifecycle ─────────────────────────────────────── */
+
+    removeLayers = () => {
+        Object.values(this.olLayers).forEach(layer => {
+            if (this.props.map) {
+                this.props.map.removeLayer(layer);
+            }
+        });
+        this.olLayers = {};
+    };
+
+    syncLayers = () => {
+        // Remove previous layers first
+        this.removeLayers();
+
+        const milxLayers = this.props.theme?.milxLayers;
+        if (!milxLayers || milxLayers.length === 0) {
+            return;
+        }
+
+        const assetsPath = ConfigUtils.getAssetsPath();
+        // Resolve absolute API base from config (falls back to current origin)
+        const apiBase = (assetsPath && assetsPath.startsWith('http'))
+            ? new URL(assetsPath).origin
+            : '';
+
+        milxLayers.forEach(mlDef => {
+            this.loadMilxLayer(mlDef, apiBase);
+        });
+    };
+
+    loadMilxLayer = (mlDef, apiBase) => {
+        const url = apiBase + mlDef.geojsonUrl;
+        const symbolBaseUrl = apiBase + (mlDef.symbolBaseUrl || '/api/symbols');
+
+        axios.get(url).then(response => {
+            const geojson = response.data;
+            if (!geojson || geojson.type !== 'FeatureCollection') {
+                return;
+            }
+
+            const affiliation = (geojson.metadata?.affiliation) || mlDef.affiliation || 'unknown';
+            const defaultSize = mlDef.symbolSize || 40;
+            const lw = mlDef.lineWidth || 3;
+
+            // Build the OL style function
+            const styleFn = (feature) => {
+                const geomType = feature.getGeometry()?.getType();
+                if (geomType === 'Point' || geomType === 'MultiPoint') {
+                    return pointStyleForFeature(feature, symbolBaseUrl, defaultSize);
+                }
+                return linePolyStyle(affiliation, lw);
+            };
+
+            // Read features.  GeoJSON is in EPSG:4326, reproject to map CRS.
+            const format = new ol.format.GeoJSON();
+            const features = format.readFeatures(geojson, {
+                dataProjection: 'EPSG:4326',
+                featureProjection: this.props.projection || 'EPSG:3857'
+            });
+
+            const source = new ol.source.Vector({features: features});
+            const olLayer = new ol.layer.Vector({
+                source: source,
+                style: styleFn,
+                zIndex: 500000  // above WMS but below measurements/redlining
+            });
+            olLayer.set('id', 'milx-' + mlDef.title);
+            olLayer.set('title', mlDef.title);
+
+            this.props.map.addLayer(olLayer);
+            this.olLayers[mlDef.title] = olLayer;
+        }).catch(err => {
+            /* eslint-disable-next-line */
+            console.warn(`[MilxSupport] Failed to load MilX layer "${mlDef.title}":`, err);
+        });
+    };
+
+    /* ── render ───────────────────────────────────────────────── */
+    render() {
+        return null;
+    }
+}
+
+export default connect((state) => ({
+    theme: state.theme.current
+}), {})(MilxSupport);
