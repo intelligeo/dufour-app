@@ -46,10 +46,10 @@ class ProjectInfo:
     qgz_size: int  # Original file size in bytes
 
 
-# ── MilX (military symbol) dataclasses ────────────────────────────────────────
+# ── MilSymb (military symbol) dataclasses ─────────────────────────────────────
 
 @dataclass
-class MilxFeature:
+class MilSymbFeature:
     """A single military symbol / tactical graphic extracted from KadasMilxItem"""
     sidc: str                           # MIL-STD-2525C SIDC  e.g. "SFGPUC-----A--G"
     military_name: str                  # Human label  e.g. "gren team DELTA"
@@ -60,14 +60,14 @@ class MilxFeature:
 
 
 @dataclass
-class MilxLayerInfo:
+class MilSymbLayerInfo:
     """A KadasMilxLayer with its contained features"""
     layer_id: str
     title: str                          # e.g. "BLUE FORCE"
     affiliation: str                    # "friendly" / "hostile" / "neutral" / "unknown"
     crs: str                            # "EPSG:4326"
     extent: Optional[Tuple[float, float, float, float]] = None
-    features: List[MilxFeature] = field(default_factory=list)
+    features: List[MilSymbFeature] = field(default_factory=list)
     symbol_size: int = 60
     line_width: int = 2
 
@@ -82,7 +82,7 @@ _AFFILIATION_MAP_2525C = {
     'P': 'unknown', 'U': 'unknown', 'G': 'unknown', 'W': 'unknown',
 }
 
-def _guess_affiliation(features: List[MilxFeature]) -> str:
+def _guess_affiliation(features: List[MilSymbFeature]) -> str:
     """Guess layer affiliation from the majority SIDC second-character."""
     counts: Dict[str, int] = {}
     for f in features:
@@ -264,9 +264,9 @@ class QGZParser:
         logger.info(f"Parsed {len(layers)} layers")
         return layers
 
-    # ── MilX (military symbol) parsing ────────────────────────────────────────
+    # ── MilSymb (military symbol) parsing ────────────────────────────────────
 
-    def parse_milx_layers(self) -> List[MilxLayerInfo]:
+    def parse_milsymb_layers(self) -> List[MilSymbLayerInfo]:
         """
         Extract KadasMilxLayer plugin layers and their MapItem features.
 
@@ -275,12 +275,12 @@ class QGZParser:
         JSON payload with SIDC, coordinates and attributes.
 
         Returns:
-            List of MilxLayerInfo (empty if no MilX layers present).
+            List of MilSymbLayerInfo (empty if no military symbol layers present).
         """
         if not self.root:
             raise ValueError("Must call parse_xml() first")
 
-        milx_layers: List[MilxLayerInfo] = []
+        milsymb_layers: List[MilSymbLayerInfo] = []
 
         for ml in self.root.findall('.//maplayer'):
             if ml.get('type') != 'plugin' or ml.get('name') != 'KadasMilxLayer':
@@ -315,17 +315,17 @@ class QGZParser:
                     pass
 
             # Parse MapItems
-            features: List[MilxFeature] = []
+            features: List[MilSymbFeature] = []
             for mi in ml.findall('MapItem'):
                 if mi.get('name') != 'KadasMilxItem':
                     continue
-                feat = self._parse_milx_item(mi)
+                feat = self._parse_milsymb_item(mi)
                 if feat:
                     features.append(feat)
 
             affiliation = _guess_affiliation(features) if features else 'unknown'
 
-            milx_layers.append(MilxLayerInfo(
+            milsymb_layers.append(MilSymbLayerInfo(
                 layer_id=layer_id,
                 title=title,
                 affiliation=affiliation,
@@ -336,16 +336,16 @@ class QGZParser:
                 line_width=line_width,
             ))
             logger.info(
-                f"MilX layer '{title}': {len(features)} features, "
+                f"MilSymb layer '{title}': {len(features)} features, "
                 f"affiliation={affiliation}"
             )
 
-        return milx_layers
+        return milsymb_layers
 
     # ──────────────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _parse_milx_item(mi_elem: ET.Element) -> Optional[MilxFeature]:
+    def _parse_milsymb_item(mi_elem: ET.Element) -> Optional[MilSymbFeature]:
         """Parse a single ``<MapItem name="KadasMilxItem">`` element."""
         raw = mi_elem.text
         if not raw:
@@ -354,7 +354,7 @@ class QGZParser:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            logger.warning("MilX MapItem: failed to decode JSON payload")
+            logger.warning("MilSymb MapItem: failed to decode JSON payload")
             return None
 
         props = data.get('props', {})
@@ -391,7 +391,7 @@ class QGZParser:
         else:
             geom_type = 'LineString'
 
-        return MilxFeature(
+        return MilSymbFeature(
             sidc=sidc,
             military_name=props.get('militaryName', ''),
             geometry_type=geom_type,

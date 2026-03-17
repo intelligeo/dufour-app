@@ -217,26 +217,26 @@ class QWCService:
                 if sublayers:
                     item["sublayers"] = sublayers
 
-                # ── MilX overlay layers (KadasMilxLayer) ──────────────────
+                # ── MilSymb overlay layers (KadasMilxLayer) ─────────────────
                 try:
-                    from services.milx_service import get_milx_layers_for_project
-                    milx_layers = get_milx_layers_for_project(project_name)
-                    if milx_layers:
-                        item["milxLayers"] = [
+                    from services.milsymb_service import get_milsymb_layers_for_project
+                    milsymb_layers = get_milsymb_layers_for_project(project_name)
+                    if milsymb_layers:
+                        item["milsymbLayers"] = [
                             {
                                 "title": ml.title,
                                 "affiliation": ml.affiliation,
                                 "featureCount": len(ml.features),
                                 "symbolSize": ml.symbol_size,
                                 "lineWidth": ml.line_width,
-                                "geojsonUrl": f"/api/projects/{project_name}/milx/{ml.title.replace(' ', '_')}.geojson",
+                                "geojsonUrl": f"/api/projects/{project_name}/milsymb/{ml.title.replace(' ', '_')}.geojson",
                                 "symbolBaseUrl": "/api/symbols",
                             }
-                            for ml in milx_layers
+                            for ml in milsymb_layers
                         ]
-                        logger.info(f"themes: {project_name} has {len(milx_layers)} MilX layer(s)")
-                except Exception as milx_err:
-                    logger.debug(f"themes: MilX extraction skipped for {project_name}: {milx_err}")
+                        logger.info(f"themes: {project_name} has {len(milsymb_layers)} MilSymb layer(s)")
+                except Exception as milsymb_err:
+                    logger.debug(f"themes: MilSymb extraction skipped for {project_name}: {milsymb_err}")
 
                 items.append(item)
             except Exception as e:

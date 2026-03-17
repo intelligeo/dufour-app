@@ -1,12 +1,12 @@
 """
-MilX Service
+MilSymb Service
 Extracts military symbol (KadasMilxLayer) data from QGIS projects
 stored in PostgreSQL, and serves it as GeoJSON suitable for
 client-side rendering via milsymbol.
 
 Pipeline:
   1.  Retrieve .qgz bytes from DB
-  2.  Parse .qgs XML → MilxLayerInfo / MilxFeature  (qgz_parser)
+  2.  Parse .qgs XML → MilSymbLayerInfo / MilSymbFeature  (qgz_parser)
   3.  Convert to GeoJSON FeatureCollection
 """
 
@@ -20,8 +20,8 @@ from typing import Any, Dict, List, Optional
 
 from services.qgz_parser import (
     QGZParser,
-    MilxFeature,
-    MilxLayerInfo,
+    MilSymbFeature,
+    MilSymbLayerInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 # ── GeoJSON conversion ────────────────────────────────────────────────────────
 
-def milx_feature_to_geojson(feat: MilxFeature) -> Dict[str, Any]:
-    """Convert a single MilxFeature to a GeoJSON Feature dict."""
+def milsymb_feature_to_geojson(feat: MilSymbFeature) -> Dict[str, Any]:
+    """Convert a single MilSymbFeature to a GeoJSON Feature dict."""
     coords = feat.coordinates  # [[lon, lat], ...]
 
     if feat.geometry_type == "Point":
@@ -76,9 +76,9 @@ def milx_feature_to_geojson(feat: MilxFeature) -> Dict[str, Any]:
     }
 
 
-def milx_layer_to_geojson(layer: MilxLayerInfo) -> Dict[str, Any]:
-    """Convert a full MilxLayerInfo to a GeoJSON FeatureCollection."""
-    features = [milx_feature_to_geojson(f) for f in layer.features]
+def milsymb_layer_to_geojson(layer: MilSymbLayerInfo) -> Dict[str, Any]:
+    """Convert a full MilSymbLayerInfo to a GeoJSON FeatureCollection."""
+    features = [milsymb_feature_to_geojson(f) for f in layer.features]
     return {
         "type": "FeatureCollection",
         "name": layer.title,
@@ -98,12 +98,12 @@ def milx_layer_to_geojson(layer: MilxLayerInfo) -> Dict[str, Any]:
 
 # ── Extraction from stored .qgz bytes ────────────────────────────────────────
 
-def extract_milx_layers_from_qgz(qgz_bytes: bytes) -> List[MilxLayerInfo]:
+def extract_milsymb_layers_from_qgz(qgz_bytes: bytes) -> List[MilSymbLayerInfo]:
     """
     Given raw .qgz bytes, extract all KadasMilxLayer layers.
 
     Returns:
-        List of MilxLayerInfo (may be empty).
+        List of MilSymbLayerInfo (may be empty).
     """
     # Write bytes to a temp file so QGZParser can work with it
     tmp = tempfile.NamedTemporaryFile(suffix=".qgz", delete=False)
@@ -114,21 +114,21 @@ def extract_milx_layers_from_qgz(qgz_bytes: bytes) -> List[MilxLayerInfo]:
         with QGZParser(Path(tmp.name)) as parser:
             parser.extract()
             parser.parse_xml()
-            return parser.parse_milx_layers()
+            return parser.parse_milsymb_layers()
     except Exception as e:
-        logger.error(f"Failed to extract MilX layers: {e}")
+        logger.error(f"Failed to extract military symbol layers: {e}")
         return []
     finally:
         Path(tmp.name).unlink(missing_ok=True)
 
 
-def extract_milx_layers_from_qgs_xml(qgs_xml: str) -> List[MilxLayerInfo]:
+def extract_milsymb_layers_from_qgs_xml(qgs_xml: str) -> List[MilSymbLayerInfo]:
     """
-    Parse MilX layers directly from a .qgs XML string (no .qgz needed).
+    Parse military symbol layers directly from a .qgs XML string (no .qgz needed).
     Useful for projects stored on disk as plain .qgs.
     """
     import xml.etree.ElementTree as ET
-    from services.qgz_parser import _guess_affiliation, MilxFeature
+    from services.qgz_parser import _guess_affiliation, MilSymbFeature
 
     root = ET.fromstring(qgs_xml)
     parser = QGZParser.__new__(QGZParser)  # bypass __init__
@@ -136,17 +136,17 @@ def extract_milx_layers_from_qgs_xml(qgs_xml: str) -> List[MilxLayerInfo]:
     parser.temp_dir = None
     parser.qgs_path = None
     parser.tree = None
-    return parser.parse_milx_layers()
+    return parser.parse_milsymb_layers()
 
 
 # ── High-level API helpers ────────────────────────────────────────────────────
 
-def get_milx_layers_for_project(project_name: str) -> List[MilxLayerInfo]:
+def get_milsymb_layers_for_project(project_name: str) -> List[MilSymbLayerInfo]:
     """
-    Retrieve .qgz from DB and extract MilX layers.
+    Retrieve .qgz from DB and extract military symbol layers.
 
     Returns:
-        List[MilxLayerInfo] — empty if no MilX layers or project not found.
+        List[MilSymbLayerInfo] — empty if no military symbol layers or project not found.
     """
     try:
         from services.qgis_storage_service import storage_service
@@ -154,15 +154,15 @@ def get_milx_layers_for_project(project_name: str) -> List[MilxLayerInfo]:
         if not qgz_bytes:
             logger.warning(f"No .qgz found in DB for project '{project_name}'")
             return []
-        return extract_milx_layers_from_qgz(qgz_bytes)
+        return extract_milsymb_layers_from_qgz(qgz_bytes)
     except Exception as e:
-        logger.error(f"get_milx_layers_for_project('{project_name}'): {e}")
+        logger.error(f"get_milsymb_layers_for_project('{project_name}'): {e}")
         return []
 
 
-def get_milx_geojson(project_name: str, layer_title: str) -> Optional[Dict[str, Any]]:
+def get_milsymb_geojson(project_name: str, layer_title: str) -> Optional[Dict[str, Any]]:
     """
-    Return a GeoJSON FeatureCollection for a specific MilX layer.
+    Return a GeoJSON FeatureCollection for a specific military symbol layer.
 
     Args:
         project_name: Project identifier
@@ -171,14 +171,14 @@ def get_milx_geojson(project_name: str, layer_title: str) -> Optional[Dict[str, 
     Returns:
         GeoJSON dict or None if not found.
     """
-    layers = get_milx_layers_for_project(project_name)
+    layers = get_milsymb_layers_for_project(project_name)
     # Match by title (case-insensitive, with fallback to slug)
     title_lower = layer_title.lower().replace("_", " ")
     for lyr in layers:
         if lyr.title.lower() == title_lower:
-            return milx_layer_to_geojson(lyr)
+            return milsymb_layer_to_geojson(lyr)
     # Try matching with underscores replaced by spaces
     for lyr in layers:
         if lyr.title.lower().replace(" ", "_") == layer_title.lower():
-            return milx_layer_to_geojson(lyr)
+            return milsymb_layer_to_geojson(lyr)
     return None

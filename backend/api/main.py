@@ -1533,23 +1533,23 @@ async def validate_sidc_endpoint(sidc: str):
     return result
 
 
-# ==================== MILX (MILITARY SYMBOL LAYERS) ENDPOINTS ====================
+# ==================== MILSYMB (MILITARY SYMBOL LAYERS) ENDPOINTS ====================
 
-@app.get("/api/projects/{project_name}/milx", tags=["milx"])
-async def list_milx_layers(project_name: str):
+@app.get("/api/projects/{project_name}/milsymb", tags=["milsymb"])
+async def list_milsymb_layers(project_name: str):
     """
-    # List MilX layers
+    # List military symbol layers
 
     Return the list of KadasMilxLayer plugin layers embedded in a QGIS
     project, with metadata (affiliation, feature count, extent).
     """
-    from services.milx_service import get_milx_layers_for_project
-    layers = get_milx_layers_for_project(project_name)
+    from services.milsymb_service import get_milsymb_layers_for_project
+    layers = get_milsymb_layers_for_project(project_name)
     if not layers:
-        return {"project": project_name, "milx_layers": []}
+        return {"project": project_name, "milsymb_layers": []}
     return {
         "project": project_name,
-        "milx_layers": [
+        "milsymb_layers": [
             {
                 "layer_id": lyr.layer_id,
                 "title": lyr.title,
@@ -1559,30 +1559,30 @@ async def list_milx_layers(project_name: str):
                 "feature_count": len(lyr.features),
                 "symbol_size": lyr.symbol_size,
                 "line_width": lyr.line_width,
-                "geojson_url": f"/api/projects/{project_name}/milx/{lyr.title.replace(' ', '_')}.geojson",
+                "geojson_url": f"/api/projects/{project_name}/milsymb/{lyr.title.replace(' ', '_')}.geojson",
             }
             for lyr in layers
         ],
     }
 
 
-@app.get("/api/projects/{project_name}/milx/{layer_name}.geojson", tags=["milx"])
-async def get_milx_layer_geojson(project_name: str, layer_name: str):
+@app.get("/api/projects/{project_name}/milsymb/{layer_name}.geojson", tags=["milsymb"])
+async def get_milsymb_layer_geojson(project_name: str, layer_name: str):
     """
-    # MilX Layer GeoJSON
+    # Military Symbol Layer GeoJSON
 
-    Return a GeoJSON FeatureCollection for a specific MilX layer.
+    Return a GeoJSON FeatureCollection for a specific military symbol layer.
     Each Feature contains `sidc`, `militaryName`, and geometry
     ready for client-side rendering via milsymbol.
 
     Layer name uses underscores for spaces (e.g. `BLUE_FORCE`).
     """
-    from services.milx_service import get_milx_geojson
-    geojson = get_milx_geojson(project_name, layer_name)
+    from services.milsymb_service import get_milsymb_geojson
+    geojson = get_milsymb_geojson(project_name, layer_name)
     if geojson is None:
         raise HTTPException(
             status_code=404,
-            detail=f"MilX layer '{layer_name}' not found in project '{project_name}'"
+            detail=f"Military symbol layer '{layer_name}' not found in project '{project_name}'"
         )
     return JSONResponse(
         content=geojson,

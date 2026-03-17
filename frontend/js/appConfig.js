@@ -65,7 +65,7 @@ import RedliningSupport from 'qwc2/plugins/map/RedliningSupport';
 import SnappingSupport from 'qwc2/plugins/map/SnappingSupport';
 import BufferSupport from 'qwc2/plugins/redlining/RedliningBufferSupport';
 
-import MilxSupport from './plugins/MilxSupport';
+import MilSymbSupport from './plugins/MilSymbSupport';
 
 import defaultLocaleData from '../static/translations/en-US.json';
 import {customAttributeCalculator, attributeTransform, customExporters} from './IdentifyExtensions';
@@ -126,7 +126,7 @@ export default {
                 LocateSupport: LocateSupport,
                 RedliningSupport: RedliningSupport,
                 SnappingSupport: SnappingSupport,
-                MilxSupport: MilxSupport
+                MilSymbSupport: MilSymbSupport
             }),
             APIPlugin: APIPlugin,
             AttributeTablePlugin: AttributeTablePlugin(),

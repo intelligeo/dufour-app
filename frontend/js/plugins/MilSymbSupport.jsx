@@ -1,15 +1,15 @@
 /**
- * MilxSupport – Map support plugin for MilX military symbol layers.
+ * MilSymbSupport – Map support plugin for MilSymb military symbol layers.
  *
- * When the active QWC2 theme contains a `milxLayers` array (injected by
+ * When the active QWC2 theme contains a `milsymbLayers` array (injected by
  * qwc_service.py from KadasMilxLayer data), this component:
- *   1. Fetches GeoJSON for each MilX layer from the backend API.
+ *   1. Fetches GeoJSON for each MilSymb layer from the backend API.
  *   2. Renders Point features with milsymbol SVG icons (via /api/symbols/).
  *   3. Renders LineString/Polygon features with affiliation-coloured OL styles.
  *   4. Manages layer lifecycle (add/remove) when the theme changes.
  *
  * Registration:  pass as a MapPlugin tool in appConfig.js, e.g.
- *   MapPlugin({ ..., MilxSupport: MilxSupport })
+ *   MapPlugin({ ..., MilSymbSupport: MilSymbSupport })
  */
 
 import React from 'react';
@@ -83,9 +83,9 @@ function linePolyStyle(affiliation, lineWidth) {
 
 
 /**
- * MilxSupport map-support plugin.
+ * MilSymbSupport map-support plugin.
  */
-class MilxSupport extends React.Component {
+class MilSymbSupport extends React.Component {
     static propTypes = {
         map: PropTypes.object,        // injected by OlMap
         projection: PropTypes.string, // injected by OlMap
@@ -128,8 +128,8 @@ class MilxSupport extends React.Component {
         // Remove previous layers first
         this.removeLayers();
 
-        const milxLayers = this.props.theme?.milxLayers;
-        if (!milxLayers || milxLayers.length === 0) {
+        const milsymbLayers = this.props.theme?.milsymbLayers;
+        if (!milsymbLayers || milsymbLayers.length === 0) {
             return;
         }
 
@@ -139,12 +139,12 @@ class MilxSupport extends React.Component {
             ? new URL(assetsPath).origin
             : '';
 
-        milxLayers.forEach(mlDef => {
-            this.loadMilxLayer(mlDef, apiBase);
+        milsymbLayers.forEach(mlDef => {
+            this.loadMilSymbLayer(mlDef, apiBase);
         });
     };
 
-    loadMilxLayer = (mlDef, apiBase) => {
+    loadMilSymbLayer = (mlDef, apiBase) => {
         const url = apiBase + mlDef.geojsonUrl;
         const symbolBaseUrl = apiBase + (mlDef.symbolBaseUrl || '/api/symbols');
 
@@ -180,14 +180,14 @@ class MilxSupport extends React.Component {
                 style: styleFn,
                 zIndex: 500000  // above WMS but below measurements/redlining
             });
-            olLayer.set('id', 'milx-' + mlDef.title);
+            olLayer.set('id', 'milsymb-' + mlDef.title);
             olLayer.set('title', mlDef.title);
 
             this.props.map.addLayer(olLayer);
             this.olLayers[mlDef.title] = olLayer;
         }).catch(err => {
             /* eslint-disable-next-line */
-            console.warn(`[MilxSupport] Failed to load MilX layer "${mlDef.title}":`, err);
+            console.warn(`[MilSymbSupport] Failed to load MilSymb layer "${mlDef.title}":`, err);
         });
     };
 
@@ -199,4 +199,4 @@ class MilxSupport extends React.Component {
 
 export default connect((state) => ({
     theme: state.theme.current
-}), {})(MilxSupport);
+}), {})(MilSymbSupport);
