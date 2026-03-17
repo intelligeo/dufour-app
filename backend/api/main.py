@@ -189,6 +189,10 @@ async def run_db_migrations():
     """Apply incremental DB migrations at startup (idempotent ALTER TABLE)."""
     from sqlalchemy import text as _text
     migrations = [
+        # public.users — auth columns (may be missing on old DBs)
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'user'",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true",
         # public.projects — per-project schema pointer
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS schema_name VARCHAR(63)",
         # public.project_layers — enriched metadata columns
