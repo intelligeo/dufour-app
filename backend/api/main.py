@@ -353,7 +353,6 @@ async def upload_and_migrate_project(
     description: Optional[str] = Form(None, description="Project description"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
-    data_files: Optional[List[UploadFile]] = File(default=None, description="Companion data files (.gpkg, .geojson, .shp, etc.)"),
 ):
     """
     # Upload QGIS Project
@@ -433,26 +432,20 @@ async def upload_and_migrate_project(
     }
 
     try:
-        # ── Resolve companion files (dual strategy) ────────────────────
-        # 1. Try FastAPI parameter binding first  (data_files param)
-        # 2. Fallback: parse from raw multipart    (request.form)
-        # This handles both Pydantic v1 and v2 behaviours.
-        candidates: List[UploadFile] = []
-        if data_files:
-            candidates = [df for df in data_files if df.filename]
-
-        # Fallback: if FastAPI didn't bind them, read from raw form
-        if not candidates:
-            form = await request.form()
-            for val in form.getlist("data_files"):
-                if isinstance(val, UploadFile) and val.filename:
-                    candidates.append(val)
-
-        valid_data_files = candidates
+        # ── Resolve companion files from raw multipart form ────────────
+        # We do NOT declare data_files as a FastAPI parameter because
+        # Pydantic v2 rejects a single UploadFile when the type hint is
+        # List[UploadFile] ("Input should be a valid list").  Instead we
+        # read them straight from Starlette's parsed form.
+        form = await request.form()
+        valid_data_files: List[UploadFile] = []
+        for val in form.getlist("data_files"):
+            if isinstance(val, UploadFile) and val.filename:
+                valid_data_files.append(val)
 
         logger.info(
             f"Upload request: name={name}, "
-            f"data_files_param={len(data_files) if data_files else 0}, "
+            f"form_keys={list(form.keys())}, "
             f"companion_files={[df.filename for df in valid_data_files]}"
         )
 
@@ -611,8 +604,7 @@ async def upload_and_migrate_project(
                     "qgz_size": len(qgz_bytes)
                 },
                 "debug": {
-                    "data_files_param_count": len(data_files) if data_files else 0,
-                    "valid_data_files": [df.filename for df in valid_data_files],
+                    "companion_files": [df.filename for df in valid_data_files],
                     "companion_paths": [str(p) for p in companion_paths],
                 },
                 "layers": [
