@@ -74,6 +74,27 @@ async function apiResetPassword(token, new_password) {
     return data;
 }
 
+// Upload progetto QGIS (multipart/form-data — NO Content-Type header)
+async function apiUploadProject(formData) {
+    const token = getToken();
+    const res = await fetch(`${API}/api/projects`, {
+        method: 'POST',
+        headers: token ? {Authorization: `Bearer ${token}`} : {},
+        body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    return data;
+}
+
+// Elimina progetto (usa endpoint admin o generico)
+async function apiDeleteProject(name, isAdmin) {
+    const path = isAdmin
+        ? `/api/admin/projects/${encodeURIComponent(name)}`
+        : `/api/projects/${encodeURIComponent(name)}`;
+    return apiFetch(path, {method: 'DELETE'});
+}
+
 // ---------------------------------------------------------------------------
 // Context auth
 // ---------------------------------------------------------------------------
@@ -455,6 +476,103 @@ function UserModal({user: initial, onSave, onClose}) {
 }
 
 // ---------------------------------------------------------------------------
+// UploadProjectModal – caricamento progetto .qgz + companion files
+// ---------------------------------------------------------------------------
+function UploadProjectModal({onSave, onClose}) {
+    const [form, setForm] = useState({name: '', title: '', description: '', is_public: false});
+    const [qgzFile, setQgzFile]       = useState(null);
+    const [dataFiles, setDataFiles]   = useState([]);  // FileList → array
+    const [err, setErr]               = useState('');
+    const [busy, setBusy]             = useState(false);
+    const [progress, setProgress]     = useState('');
+
+    function field(name) {
+        return {
+            value: form[name],
+            onChange: e => setForm(f => ({...f, [name]: e.target.type === 'checkbox' ? e.target.checked : e.target.value})),
+        };
+    }
+
+    async function handleUpload() {
+        if (!form.name.trim()) { setErr('Nome progetto obbligatorio'); return; }
+        if (!qgzFile) { setErr('Seleziona un file .qgz'); return; }
+        setBusy(true); setErr(''); setProgress('Caricamento in corso…');
+        try {
+            const fd = new FormData();
+            fd.append('name', form.name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+            if (form.title)       fd.append('title', form.title);
+            if (form.description) fd.append('description', form.description);
+            fd.append('is_public', form.is_public ? 'true' : 'false');
+            fd.append('file', qgzFile);
+            for (const f of dataFiles) {
+                fd.append('data_files', f);
+            }
+            setProgress('Upload e migrazione in corso… (può richiedere 30s)');
+            const result = await apiUploadProject(fd);
+            setProgress('');
+            onSave(result);
+        } catch (ex) {
+            setErr(ex.message);
+            setProgress('');
+        } finally { setBusy(false); }
+    }
+
+    return (
+        <Modal title="📤 Carica progetto QGIS" onClose={onClose}>
+            <label style={S.label}>Nome progetto *</label>
+            <input style={S.input} {...field('name')}
+                   placeholder="es. my_project (solo a-z, 0-9, _)" autoFocus />
+
+            <label style={S.label}>Titolo</label>
+            <input style={S.input} {...field('title')} placeholder="es. Carta Topografica 1:25000" />
+
+            <label style={S.label}>Descrizione</label>
+            <input style={S.input} {...field('description')} placeholder="Opzionale" />
+
+            <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16}}>
+                <input type="checkbox" id="pub" checked={form.is_public}
+                       onChange={e => setForm(f => ({...f, is_public: e.target.checked}))} />
+                <label htmlFor="pub" style={{...S.label, marginBottom: 0, cursor: 'pointer'}}>
+                    Pubblico (visibile a tutti)
+                </label>
+            </div>
+
+            <label style={S.label}>File QGIS (.qgz) *</label>
+            <input type="file" accept=".qgz,.qgs" style={{...S.input, padding: '6px 10px'}}
+                   onChange={e => setQgzFile(e.target.files[0] || null)} />
+
+            <label style={S.label}>File dati companion (GeoPackage, GeoJSON, Shapefile…)</label>
+            <input type="file" multiple style={{...S.input, padding: '6px 10px'}}
+                   accept=".gpkg,.geojson,.json,.shp,.shx,.dbf,.prj,.cpg,.csv,.tif,.tiff"
+                   onChange={e => setDataFiles(Array.from(e.target.files))} />
+            {dataFiles.length > 0 && (
+                <div style={{fontSize: 11, color: '#9ba3af', marginBottom: 12}}>
+                    {dataFiles.map(f => f.name).join(', ')}
+                </div>
+            )}
+
+            {err && <div style={S.error}>{err}</div>}
+            {progress && (
+                <div style={{fontSize: 12, color: '#7cb9e8', marginBottom: 12, display: 'flex',
+                             alignItems: 'center', gap: 8}}>
+                    <span style={{display: 'inline-block', width: 14, height: 14,
+                                  border: '2px solid #7cb9e8', borderTopColor: 'transparent',
+                                  borderRadius: '50%', animation: 'spin 1s linear infinite'}} />
+                    {progress}
+                </div>
+            )}
+
+            <div style={{display: 'flex', gap: 8, justifyContent: 'flex-end'}}>
+                <Btn style={S.btnSecondary} onClick={onClose} disabled={busy}>Annulla</Btn>
+                <Btn style={S.btnPrimary} onClick={handleUpload} disabled={busy}>
+                    {busy ? 'Caricamento…' : '📤 Carica'}
+                </Btn>
+            </div>
+        </Modal>
+    );
+}
+
+// ---------------------------------------------------------------------------
 // AdminUsers – gestione utenti
 // ---------------------------------------------------------------------------
 function AdminUsers() {
@@ -537,6 +655,7 @@ function AdminUsers() {
 function AdminProjects() {
     const [projects, setProjects] = useState([]);
     const [busy, setBusy]         = useState(true);
+    const [showUpload, setShowUpload] = useState(false);
 
     async function load() {
         setBusy(true);
@@ -548,46 +667,65 @@ function AdminProjects() {
     useEffect(() => { load(); }, []);
 
     async function deleteProject(name) {
-        if (!confirm(`Eliminare il progetto "${name}"?`)) return;
-        try { await apiFetch(`/api/admin/projects/${encodeURIComponent(name)}`, {method: 'DELETE'}); load(); }
+        if (!confirm(`Eliminare il progetto "${name}" e tutti i suoi dati?`)) return;
+        try { await apiDeleteProject(name, true); load(); }
         catch (ex) { alert(ex.message); }
     }
 
     return (
-        <div style={S.tableWrap}>
-            <table style={S.table}>
-                <thead>
-                    <tr>
-                        {['Nome','Titolo','CRS','Dimensione','Aggiornato','Azioni'].map(h =>
-                            <th key={h} style={S.th}>{h}</th>)}
-                    </tr>
-                </thead>
-                <tbody>
-                    {busy && (
-                        <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
-                            Caricamento…
-                        </td></tr>
-                    )}
-                    {!busy && projects.map(p => (
-                        <tr key={p.name}>
-                            <td style={S.td}><code style={{color:'#7cb9e8'}}>{p.name}</code></td>
-                            <td style={S.td}>{p.title || '—'}</td>
-                            <td style={S.td}>{p.crs  || '—'}</td>
-                            <td style={S.td}>{p.file_size ? `${Math.round(p.file_size/1024)} KB` : '—'}</td>
-                            <td style={S.td}>{p.updated_at ? p.updated_at.slice(0,10) : '—'}</td>
-                            <td style={S.td}>
-                                <Btn style={{...S.btnDanger, ...S.btnSmall}}
-                                     onClick={() => deleteProject(p.name)}>Elimina</Btn>
-                            </td>
+        <div>
+            <div style={{padding: '16px 24px 0', display: 'flex', justifyContent: 'flex-end'}}>
+                <Btn style={S.btnPrimary} onClick={() => setShowUpload(true)}>📤 Carica progetto</Btn>
+            </div>
+            <div style={S.tableWrap}>
+                <table style={S.table}>
+                    <thead>
+                        <tr>
+                            {['Nome','Titolo','CRS','Dimensione','Aggiornato','Azioni'].map(h =>
+                                <th key={h} style={S.th}>{h}</th>)}
                         </tr>
-                    ))}
-                    {!busy && projects.length === 0 && (
-                        <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
-                            Nessun progetto.
-                        </td></tr>
-                    )}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {busy && (
+                            <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
+                                Caricamento…
+                            </td></tr>
+                        )}
+                        {!busy && projects.map(p => (
+                            <tr key={p.name}>
+                                <td style={S.td}>
+                                    <a href={`/?t=${encodeURIComponent(p.name)}`}
+                                       style={{color:'#7cb9e8', textDecoration:'none', fontWeight:600}}>
+                                        {p.name}
+                                    </a>
+                                </td>
+                                <td style={S.td}>{p.title || '—'}</td>
+                                <td style={S.td}>{p.crs  || '—'}</td>
+                                <td style={S.td}>{p.file_size ? `${Math.round(p.file_size/1024)} KB` : '—'}</td>
+                                <td style={S.td}>{p.updated_at ? p.updated_at.slice(0,10) : '—'}</td>
+                                <td style={{...S.td, whiteSpace:'nowrap'}}>
+                                    <Btn style={{...S.btnSecondary, ...S.btnSmall, marginRight:4}}
+                                         onClick={() => window.open(`/api/projects/${encodeURIComponent(p.name)}/wms?SERVICE=WMS&REQUEST=GetCapabilities`, '_blank')}
+                                         title="WMS GetCapabilities">🌐 WMS</Btn>
+                                    <Btn style={{...S.btnDanger, ...S.btnSmall}}
+                                         onClick={() => deleteProject(p.name)}>🗑 Elimina</Btn>
+                                </td>
+                            </tr>
+                        ))}
+                        {!busy && projects.length === 0 && (
+                            <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
+                                Nessun progetto. Usa il pulsante "Carica progetto" per iniziare.
+                            </td></tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+            {showUpload && (
+                <UploadProjectModal
+                    onSave={() => { setShowUpload(false); load(); }}
+                    onClose={() => setShowUpload(false)}
+                />
+            )}
         </div>
     );
 }
@@ -635,14 +773,17 @@ function HealthBadge({health}) {
 function UserProjects() {
     const [projects, setProjects] = useState([]);
     const [busy, setBusy]         = useState(true);
-    const [healthMap, setHealthMap] = useState({});  // name → health object | 'loading'
+    const [healthMap, setHealthMap] = useState({});
+    const [showUpload, setShowUpload] = useState(false);
 
-    useEffect(() => {
+    const reload = () => {
+        setBusy(true);
         apiFetch('/api/user/projects')
             .then(ps => setProjects(ps))
             .catch(() => {})
             .finally(() => setBusy(false));
-    }, []);
+    };
+    useEffect(reload, []);
 
     async function checkHealth(name) {
         setHealthMap(m => ({...m, [name]: 'loading'}));
@@ -654,16 +795,25 @@ function UserProjects() {
         }
     }
 
+    async function handleDelete(name) {
+        if (!confirm(`Eliminare il progetto "${name}"?`)) return;
+        try {
+            await apiDeleteProject(name, false);
+            reload();
+        } catch (ex) { alert('Errore: ' + ex.message); }
+    }
+
     return (
         <div>
-            <div style={{padding:'16px 24px 0', color:'#9ba3af', fontSize:13}}>
-                I progetti caricati nel tuo account.
+            <div style={{padding:'16px 24px 0', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <span style={{color:'#9ba3af', fontSize:13}}>I progetti caricati nel tuo account.</span>
+                <Btn style={S.btnPrimary} onClick={() => setShowUpload(true)}>📤 Carica progetto</Btn>
             </div>
             <div style={S.tableWrap}>
                 <table style={S.table}>
                     <thead>
                         <tr>
-                            {['Nome','Titolo','CRS','Dimensione','Aggiornato','Health'].map(h =>
+                            {['Nome','Titolo','CRS','Dimensione','Aggiornato','Azioni'].map(h =>
                                 <th key={h} style={S.th}>{h}</th>)}
                         </tr>
                     </thead>
@@ -675,6 +825,7 @@ function UserProjects() {
                         )}
                         {!busy && projects.map(p => {
                             const h = healthMap[p.name];
+                            const wmsUrl = `${window.location.origin}/api/ows/${encodeURIComponent(p.name)}?SERVICE=WMS&REQUEST=GetCapabilities`;
                             return (
                                 <tr key={p.name}>
                                     <td style={S.td}>
@@ -688,26 +839,42 @@ function UserProjects() {
                                     <td style={S.td}>{p.file_size ? `${Math.round(p.file_size/1024)} KB` : '—'}</td>
                                     <td style={S.td}>{p.updated_at ? p.updated_at.slice(0,10) : '—'}</td>
                                     <td style={S.td}>
-                                        {!h && (
+                                        <div style={{display:'flex', gap:4, flexWrap:'wrap', alignItems:'center'}}>
                                             <Btn style={{...S.btnSecondary,...S.btnSmall}}
-                                                 onClick={() => checkHealth(p.name)}>
-                                                🔍 Verifica
+                                                 onClick={() => window.open(wmsUrl, '_blank')}>
+                                                🌐 WMS
                                             </Btn>
-                                        )}
-                                        {h === 'loading' && <span style={{fontSize:12,color:'#9ba3af'}}>…</span>}
-                                        {h && h !== 'loading' && <HealthBadge health={h} />}
+                                            <Btn style={{...S.btnSecondary,...S.btnSmall}}
+                                                 onClick={() => handleDelete(p.name)}>
+                                                🗑
+                                            </Btn>
+                                            {!h && (
+                                                <Btn style={{...S.btnSecondary,...S.btnSmall}}
+                                                     onClick={() => checkHealth(p.name)}>
+                                                    🔍
+                                                </Btn>
+                                            )}
+                                            {h === 'loading' && <span style={{fontSize:12,color:'#9ba3af'}}>…</span>}
+                                            {h && h !== 'loading' && <HealthBadge health={h} />}
+                                        </div>
                                     </td>
                                 </tr>
                             );
                         })}
                         {!busy && projects.length === 0 && (
                             <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>
-                                Nessun progetto. <a href="/" style={{color:'#7cb9e8'}}>Carica un progetto</a> dalla mappa.
+                                Nessun progetto.
                             </td></tr>
                         )}
                     </tbody>
                 </table>
             </div>
+            {showUpload && (
+                <UploadProjectModal
+                    onClose={() => setShowUpload(false)}
+                    onDone={() => { setShowUpload(false); reload(); }}
+                />
+            )}
         </div>
     );
 }
@@ -789,9 +956,12 @@ function AppShell() {
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
+const spinKeyframes = `@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`;
+
 function AdminApp() {
     return (
         <AuthProvider>
+            <style dangerouslySetInnerHTML={{__html: spinKeyframes}} />
             <div style={S.page}>
                 <AppShell />
             </div>
