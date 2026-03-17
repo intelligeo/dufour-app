@@ -86,7 +86,13 @@ module.exports = (env, argv) => {
             }),
             new CopyWebpackPlugin({
                 patterns: [
-                    { from: 'static' }
+                    {
+                        from: 'static',
+                        // themes.json is served dynamically by the backend at /themes.json.
+                        // Excluding it from the bundle prevents nginx from finding it as a
+                        // static file and bypassing the proxy_pass to api.intelligeo.net.
+                        globOptions: { ignore: ['**/themes.json'] }
+                    }
                 ]
             }),
             env.ANALYZE === "1" ? new BundleAnalyzerPlugin({
