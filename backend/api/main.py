@@ -335,8 +335,8 @@ async def upload_and_migrate_project(
     description: Optional[str] = Form(None, description="Project description"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
-    data_files: Optional[List[UploadFile]] = File(
-        default=None,
+    data_files: List[UploadFile] = File(
+        default=[],
         description="Optional companion data files referenced by the project "
                     "(.gpkg, .geojson, .shp, .fgb, .csv). "
                     "Can be sent once per file; one or many files accepted. "
@@ -421,18 +421,9 @@ async def upload_and_migrate_project(
     }
 
     try:
-        # Normalise data_files — FastAPI delivers either a list (multiple files)
-        # or a single UploadFile (one file sent without [] bracket).
-        # Also filter out empty-filename entries sent by Swagger UI.
-        if data_files is None:
-            raw_data_files = []
-        elif isinstance(data_files, UploadFile):
-            raw_data_files = [data_files]
-        else:
-            raw_data_files = list(data_files)
-
+        # Filter out empty-filename entries sent by Swagger UI.
         valid_data_files = [
-            df for df in raw_data_files
+            df for df in data_files
             if isinstance(df, UploadFile) and df.filename
         ]
 
