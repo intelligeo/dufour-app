@@ -50,6 +50,30 @@ async function apiLogin(username, password) {
     return data;                // { access_token, token_type, role, username }
 }
 
+// Richiesta reset password (email)
+async function apiForgotPassword(email) {
+    const res = await fetch(`${API}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    return data;
+}
+
+// Reset password con token
+async function apiResetPassword(token, new_password) {
+    const res = await fetch(`${API}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({token, new_password}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    return data;
+}
+
 // ---------------------------------------------------------------------------
 // Context auth
 // ---------------------------------------------------------------------------
@@ -186,7 +210,7 @@ function Modal({title, onClose, children}) {
 // ---------------------------------------------------------------------------
 // LoginForm
 // ---------------------------------------------------------------------------
-function LoginForm() {
+function LoginForm({onForgot}) {
     const {login} = useAuth();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -216,6 +240,153 @@ function LoginForm() {
                     <Btn style={{...S.btnPrimary, width: '100%', padding: '9px'}}
                          type="submit" disabled={busy}>
                         {busy ? 'Accesso…' : 'Accedi'}
+                    </Btn>
+                </form>
+                <div style={{textAlign: 'center', marginTop: 16}}>
+                    <span style={{fontSize: 13, color: '#7cb9e8', cursor: 'pointer',
+                                  textDecoration: 'underline'}}
+                          onClick={onForgot}>
+                        Password dimenticata?
+                    </span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ForgotPasswordForm – richiesta email per reset
+// ---------------------------------------------------------------------------
+function ForgotPasswordForm({onBack}) {
+    const [email, setEmail] = useState('');
+    const [err, setErr]     = useState('');
+    const [sent, setSent]   = useState(false);
+    const [busy, setBusy]   = useState(false);
+
+    async function handleSubmit(e) {
+        e.preventDefault();
+        setBusy(true); setErr('');
+        try {
+            await apiForgotPassword(email);
+            setSent(true);
+        } catch (ex) { setErr(ex.message); }
+        finally { setBusy(false); }
+    }
+
+    if (sent) {
+        return (
+            <div style={S.loginWrap}>
+                <div style={S.card}>
+                    <h2 style={S.h2}>📧 Controlla la tua email</h2>
+                    <p style={{color: '#9ba3af', fontSize: 14, lineHeight: 1.6}}>
+                        Se l'indirizzo <strong style={{color: '#e2e8f0'}}>{email}</strong> è
+                        associato a un account, riceverai un'email con un link per reimpostare
+                        la password.
+                    </p>
+                    <p style={{color: '#9ba3af', fontSize: 13, marginTop: 12}}>
+                        Il link è valido per 30 minuti. Controlla anche la cartella spam.
+                    </p>
+                    <Btn style={{...S.btnSecondary, width: '100%', padding: '9px', marginTop: 20}}
+                         onClick={onBack}>
+                        ← Torna al login
+                    </Btn>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div style={S.loginWrap}>
+            <div style={S.card}>
+                <h2 style={S.h2}>Password dimenticata</h2>
+                <p style={{color: '#9ba3af', fontSize: 13, marginBottom: 20}}>
+                    Inserisci l'email associata al tuo account. Riceverai un link per reimpostare la password.
+                </p>
+                <form onSubmit={handleSubmit}>
+                    <label style={S.label}>Email</label>
+                    <input style={S.input} type="email" value={email}
+                           onChange={e => setEmail(e.target.value)} autoFocus required
+                           placeholder="nome@esempio.com" />
+                    {err && <div style={S.error}>{err}</div>}
+                    <Btn style={{...S.btnPrimary, width: '100%', padding: '9px'}}
+                         type="submit" disabled={busy}>
+                        {busy ? 'Invio…' : 'Invia link di reset'}
+                    </Btn>
+                </form>
+                <div style={{textAlign: 'center', marginTop: 16}}>
+                    <span style={{fontSize: 13, color: '#7cb9e8', cursor: 'pointer',
+                                  textDecoration: 'underline'}}
+                          onClick={onBack}>
+                        ← Torna al login
+                    </span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ResetPasswordForm – imposta nuova password con token dall'URL
+// ---------------------------------------------------------------------------
+function ResetPasswordForm({token, onDone}) {
+    const [password, setPassword]   = useState('');
+    const [confirm, setConfirm]     = useState('');
+    const [err, setErr]             = useState('');
+    const [success, setSuccess]     = useState(false);
+    const [busy, setBusy]           = useState(false);
+
+    async function handleSubmit(e) {
+        e.preventDefault();
+        if (password !== confirm) { setErr('Le password non corrispondono'); return; }
+        if (password.length < 6) { setErr('La password deve essere di almeno 6 caratteri'); return; }
+        setBusy(true); setErr('');
+        try {
+            await apiResetPassword(token, password);
+            setSuccess(true);
+            // Pulisci il token dall'URL
+            window.history.replaceState({}, '', '/admin');
+        } catch (ex) { setErr(ex.message); }
+        finally { setBusy(false); }
+    }
+
+    if (success) {
+        return (
+            <div style={S.loginWrap}>
+                <div style={S.card}>
+                    <h2 style={S.h2}>✅ Password reimpostata!</h2>
+                    <p style={{color: '#9ba3af', fontSize: 14, lineHeight: 1.6}}>
+                        La tua password è stata cambiata con successo.
+                        Ora puoi accedere con la nuova password.
+                    </p>
+                    <Btn style={{...S.btnPrimary, width: '100%', padding: '9px', marginTop: 20}}
+                         onClick={onDone}>
+                        Vai al login
+                    </Btn>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div style={S.loginWrap}>
+            <div style={S.card}>
+                <h2 style={S.h2}>Nuova password</h2>
+                <p style={{color: '#9ba3af', fontSize: 13, marginBottom: 20}}>
+                    Scegli una nuova password per il tuo account.
+                </p>
+                <form onSubmit={handleSubmit}>
+                    <label style={S.label}>Nuova password</label>
+                    <input style={S.input} type="password" value={password}
+                           onChange={e => setPassword(e.target.value)} autoFocus required
+                           minLength={6} placeholder="Almeno 6 caratteri" />
+                    <label style={S.label}>Conferma password</label>
+                    <input style={S.input} type="password" value={confirm}
+                           onChange={e => setConfirm(e.target.value)} required
+                           minLength={6} placeholder="Ripeti la password" />
+                    {err && <div style={S.error}>{err}</div>}
+                    <Btn style={{...S.btnPrimary, width: '100%', padding: '9px'}}
+                         type="submit" disabled={busy}>
+                        {busy ? 'Salvataggio…' : 'Reimposta password'}
                     </Btn>
                 </form>
             </div>
@@ -560,6 +731,12 @@ function UserDashboard() {
 // ---------------------------------------------------------------------------
 function AppShell() {
     const {user, loading, logout} = useAuth();
+    // 'login' | 'forgot' | null (when authenticated)
+    const [view, setView] = useState('login');
+
+    // Controlla se c'è un token di reset nell'URL (?reset_token=...)
+    const params = new URLSearchParams(window.location.search);
+    const resetToken = params.get('reset_token');
 
     if (loading) {
         return (
@@ -569,7 +746,26 @@ function AppShell() {
         );
     }
 
-    if (!user) return <LoginForm />;
+    // Se c'è un reset_token nell'URL → mostra il form di reset password
+    if (resetToken) {
+        return (
+            <ResetPasswordForm
+                token={resetToken}
+                onDone={() => {
+                    window.history.replaceState({}, '', '/admin');
+                    setView('login');
+                    window.location.reload();
+                }}
+            />
+        );
+    }
+
+    if (!user) {
+        if (view === 'forgot') {
+            return <ForgotPasswordForm onBack={() => setView('login')} />;
+        }
+        return <LoginForm onForgot={() => setView('forgot')} />;
+    }
 
     return (
         <>

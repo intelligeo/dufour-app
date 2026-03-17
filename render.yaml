@@ -48,6 +48,19 @@ services:
       # Render.com routes traffic to this port — FastAPI must listen here
       - key: PORT
         value: "10000"
+      # SMTP for password reset emails
+      - key: SMTP_HOST
+        sync: false  # Configure in Render dashboard (e.g. smtp.gmail.com)
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false  # Configure in Render dashboard
+      - key: SMTP_PASSWORD
+        sync: false  # Configure in Render dashboard
+      - key: SMTP_FROM
+        value: "noreply@intelligeo.ch"
+      - key: APP_BASE_URL
+        value: "https://dev.dufour.app"
     healthCheckPath: /
     autoDeploy: true
 

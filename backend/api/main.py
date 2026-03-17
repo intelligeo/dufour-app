@@ -194,6 +194,15 @@ async def run_db_migrations():
         # public.project_layers — enriched metadata columns
         "ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS crs VARCHAR(50)",
         "ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS features_count INTEGER DEFAULT 0",
+        # public.password_reset_tokens — password recovery
+        """CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token VARCHAR(255) UNIQUE NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            used BOOLEAN NOT NULL DEFAULT false,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
     ]
     try:
         with db.get_engine().connect() as conn:
@@ -1943,6 +1952,9 @@ from services.auth_service import (
     authenticate_user, create_access_token,
     get_current_user, require_admin,
     hash_password, _get_user_by_username,
+    _get_user_by_email, generate_reset_token,
+    verify_reset_token, mark_token_used,
+    reset_user_password, send_reset_email,
 )
 
 
@@ -1967,6 +1979,58 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 async def me(current_user=Depends(get_current_user)):
     """Returns the profile of the currently authenticated user."""
     return {k: v for k, v in current_user.items() if k != "password_hash"}
+
+
+@app.post("/api/auth/forgot-password", tags=["auth"])
+async def forgot_password(body: dict):
+    """
+    # Richiesta reset password
+    Invia un'email con link di reset all'indirizzo associato all'account.
+
+    Body: `{"email": "user@example.com"}`
+
+    **Nota**: per sicurezza, la risposta è sempre 200 anche se l'email non esiste.
+    """
+    email = body.get("email", "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=422, detail="Campo 'email' obbligatorio")
+
+    # Always respond 200 to avoid user enumeration
+    user = _get_user_by_email(email)
+    if not user or not user["is_active"]:
+        logger.info(f"Forgot-password request for unknown/inactive email: {email}")
+        return {"message": "Se l'indirizzo è associato a un account, riceverai un'email con le istruzioni."}
+
+    token = generate_reset_token(user["id"])
+    sent = send_reset_email(user["email"], user["username"], token)
+    if not sent:
+        logger.warning(f"Reset email could not be sent to {email} — SMTP may not be configured")
+
+    return {"message": "Se l'indirizzo è associato a un account, riceverai un'email con le istruzioni."}
+
+
+@app.post("/api/auth/reset-password", tags=["auth"])
+async def reset_password(body: dict):
+    """
+    # Reset password
+    Verifica il token ricevuto via email e imposta la nuova password.
+
+    Body: `{"token": "...", "new_password": "..."}`
+    """
+    token = body.get("token", "").strip()
+    new_password = body.get("new_password", "").strip()
+
+    if not token:
+        raise HTTPException(status_code=422, detail="Campo 'token' obbligatorio")
+    if not new_password or len(new_password) < 6:
+        raise HTTPException(status_code=422, detail="La password deve essere di almeno 6 caratteri")
+
+    user = verify_reset_token(token)
+    reset_user_password(user["id"], new_password)
+    mark_token_used(token)
+
+    logger.info(f"Password reset completed for user {user['username']}")
+    return {"message": "Password reimpostata con successo. Ora puoi accedere con la nuova password."}
 
 
 # ==================== ADMIN ENDPOINTS ====================
