@@ -42,7 +42,7 @@ class LayerExtractor:
     # PostGIS connection template
     POSTGIS_CONNECTION_TEMPLATE = (
         "dbname='{database}' host='{host}' port={port} "
-        "user='{user}' password='{password}' sslmode=disable "
+        "user='{user}' password='{password}' sslmode=require "
         "key='fid' srid={srid} type={geometry_type} "
         "table=\"{schema}\".\"{table}\" (geom) sql="
     )

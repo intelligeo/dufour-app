@@ -921,6 +921,71 @@ async def list_tables(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== DIAGNOSTIC ENDPOINT (temporary) ====================
+
+@app.get("/api/projects/{project_name}/diagnose", tags=["debug"])
+async def diagnose_project(project_name: str):
+    """Temporary diagnostic endpoint: inspect .qgz datasources and PostGIS tables."""
+    import zipfile, io, xml.etree.ElementTree as ET
+    result = {"project": project_name, "layers": [], "tables": [], "errors": []}
+
+    # 1. Inspect .qgz from DB
+    try:
+        qgz_bytes = storage_service.retrieve_qgz(project_name)
+        if not qgz_bytes:
+            result["errors"].append("No .qgz found in DB")
+        else:
+            result["qgz_size"] = len(qgz_bytes)
+            with zipfile.ZipFile(io.BytesIO(qgz_bytes)) as zf:
+                result["qgz_files"] = zf.namelist()
+                qgs_files = [n for n in zf.namelist() if n.endswith('.qgs')]
+                if qgs_files:
+                    with zf.open(qgs_files[0]) as f:
+                        tree = ET.parse(f)
+                    root_xml = tree.getroot()
+                    for ml in root_xml.iter('maplayer'):
+                        layer_name = ml.findtext('layername', '')
+                        ds = ml.findtext('datasource', '') or ''
+                        provider = ml.findtext('provider', '')
+                        result["layers"].append({
+                            "name": layer_name,
+                            "provider": provider,
+                            "datasource_preview": ds[:200],
+                        })
+    except Exception as e:
+        result["errors"].append(f"qgz inspection: {e}")
+
+    # 2. Check PostGIS tables in prj_<name> schema
+    try:
+        schema = f"prj_{project_name}"
+        with db.get_engine().connect() as conn:
+            rows = conn.execute(text(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = :s"
+            ), {"s": schema}).fetchall()
+            result["tables"] = [r[0] for r in rows]
+    except Exception as e:
+        result["errors"].append(f"schema check: {e}")
+
+    # 3. Check QGIS Server connectivity
+    try:
+        import httpx
+        temp_dir = Path(tempfile.gettempdir()) / 'dufour_qgis_projects'
+        temp_path = temp_dir / f"{project_name}.qgz"
+        result["qgz_on_disk"] = temp_path.exists()
+        if temp_path.exists():
+            result["qgz_disk_size"] = temp_path.stat().st_size
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            cap_url = f"http://localhost:80/qgis?MAP={temp_path}&SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities"
+            resp = await client.get(cap_url)
+            result["qgis_status"] = resp.status_code
+            result["qgis_response_preview"] = resp.text[:500]
+    except Exception as e:
+        result["errors"].append(f"QGIS Server check: {e}")
+
+    return result
+
+
 # ==================== QWC ENDPOINTS ====================
 
 @app.get("/themes.json", tags=["qwc2"])
