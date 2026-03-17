@@ -336,6 +336,7 @@ async def upload_and_migrate_project(
     description: Optional[str] = Form(None, description="Project description"),
     is_public: bool = Form(False, description="Public visibility"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
+    data_files: Optional[List[UploadFile]] = File(default=None, description="Companion data files (.gpkg, .geojson, .shp, etc.)"),
 ):
     """
     # Upload QGIS Project
@@ -415,19 +416,26 @@ async def upload_and_migrate_project(
     }
 
     try:
-        # Extract companion data_files from multipart form manually
-        # (FastAPI + Pydantic v2 has issues with List[UploadFile] in multipart)
-        form = await request.form()
-        data_files_raw = form.getlist("data_files")
-        valid_data_files = [
-            df for df in data_files_raw
-            if isinstance(df, UploadFile) and df.filename
-        ]
+        # ── Resolve companion files (dual strategy) ────────────────────
+        # 1. Try FastAPI parameter binding first  (data_files param)
+        # 2. Fallback: parse from raw multipart    (request.form)
+        # This handles both Pydantic v1 and v2 behaviours.
+        candidates: List[UploadFile] = []
+        if data_files:
+            candidates = [df for df in data_files if df.filename]
+
+        # Fallback: if FastAPI didn't bind them, read from raw form
+        if not candidates:
+            form = await request.form()
+            for val in form.getlist("data_files"):
+                if isinstance(val, UploadFile) and val.filename:
+                    candidates.append(val)
+
+        valid_data_files = candidates
 
         logger.info(
             f"Upload request: name={name}, "
-            f"form_keys={list(form.keys())}, "
-            f"data_files_raw_count={len(data_files_raw)}, "
+            f"data_files_param={len(data_files) if data_files else 0}, "
             f"companion_files={[df.filename for df in valid_data_files]}"
         )
 
@@ -586,7 +594,7 @@ async def upload_and_migrate_project(
                     "qgz_size": len(qgz_bytes)
                 },
                 "debug": {
-                    "data_files_raw_count": len(data_files_raw),
+                    "data_files_param_count": len(data_files) if data_files else 0,
                     "valid_data_files": [df.filename for df in valid_data_files],
                     "companion_paths": [str(p) for p in companion_paths],
                 },
