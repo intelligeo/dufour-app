@@ -50,12 +50,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 
 # ── Password helpers ──────────────────────────────────────────────────────────
 
+def _truncate_for_bcrypt(password: str) -> str:
+    """Bcrypt only uses the first 72 bytes; truncate to avoid errors with bcrypt ≥ 4.1."""
+    return password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
+
+
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return pwd_context.verify(_truncate_for_bcrypt(plain), hashed)
 
 
 def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+    return pwd_context.hash(_truncate_for_bcrypt(plain))
 
 
 # ── JWT helpers ───────────────────────────────────────────────────────────────
