@@ -121,8 +121,6 @@ class MilSymbSizeSlider extends React.Component {
     }
 }
 
-export default {
-    MilSymbSizeSliderPlugin: connect((state) => ({
-        theme: state.theme?.current
-    }), {})(MilSymbSizeSlider)
-};
+export default connect((state) => ({
+    theme: state.theme?.current
+}), {})(MilSymbSizeSlider);
