@@ -1,64 +1,55 @@
-.milsymb-size-slider-wrapper {
-    position: relative;
-    display: inline-block;
+/* MilSymbSizeSlider – SideBar panel styles */
+
+.milsymb-sidebar-body {
+    padding: 1em;
 }
 
-.milsymb-size-btn.map-button {
-    width: 32px;
-    height: 32px;
-    border-radius: 4px;
-    background: var(--panelBg, #fff);
-    color: var(--text, #333);
-    border: 1px solid var(--border, rgba(0,0,0,.2));
-    box-shadow: 0 1px 4px rgba(0,0,0,.3);
-    cursor: pointer;
+.milsymb-sidebar-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75em;
+}
+
+.milsymb-sidebar-preview {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0;
-    font-size: 18px;
-    line-height: 1;
-}
-
-.milsymb-size-btn.map-button:hover {
-    background: var(--hoverBg, #f0f0f0);
-}
-
-.milsymb-btn-icon {
-    display: block;
-    font-size: 16px;
-}
-
-.milsymb-size-popup {
-    position: absolute;
-    bottom: 0;
-    right: 40px;
-    z-index: 10000;
-    background: var(--panelBg, #fff);
-    color: var(--text, #333);
-    border: 1px solid var(--border, #ccc);
+    gap: 0.75em;
+    padding: 1em 0;
+    border: 1px solid var(--border-color, #ddd);
     border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.25);
-    padding: 10px 14px;
-    min-width: 180px;
-    white-space: nowrap;
+    background: var(--list-bg-color, #fafafa);
 }
 
-.milsymb-size-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 12px;
+.milsymb-preview-icon {
+    line-height: 1;
+    color: var(--text-color, #333);
+    transition: font-size 0.15s ease;
 }
 
-.milsymb-size-range {
+.milsymb-preview-size {
+    font-size: 0.9em;
+    font-weight: bold;
+    color: var(--text-color-secondary, #666);
+    min-width: 3.5em;
+    text-align: right;
+}
+
+.milsymb-sidebar-label {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--text-color, #333);
+}
+
+.milsymb-sidebar-range {
     width: 100%;
     cursor: pointer;
+    accent-color: var(--titlebar-bg-color, #0078d4);
 }
 
-.milsymb-size-ticks {
+.milsymb-sidebar-ticks {
     display: flex;
     justify-content: space-between;
-    font-size: 10px;
+    font-size: 0.75em;
     opacity: 0.6;
-    margin-top: 2px;
 }
