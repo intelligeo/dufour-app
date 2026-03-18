@@ -100,6 +100,13 @@ class MilSymbSupport extends React.Component {
         this.symbolSize = 40;
         // Store symbolBaseUrl per layer for re-styling
         this.layerMeta = {};
+        // AbortController for in-flight GeoJSON requests
+        this.abortController = null;
+        // Generation counter – incremented on every syncLayers call so that
+        // responses arriving after a newer sync are silently discarded.
+        this.syncGeneration = 0;
+        // Guard: set to true on unmount to avoid touching the map afterwards
+        this.unmounted = false;
     }
 
     componentDidMount() {
@@ -115,9 +122,20 @@ class MilSymbSupport extends React.Component {
     }
 
     componentWillUnmount() {
+        this.unmounted = true;
+        this.cancelInflightRequests();
         this.removeLayers();
         window.removeEventListener('milsymb-size-change', this.onSizeChange);
     }
+
+    /* ── request cancellation ────────────────────────────────── */
+
+    cancelInflightRequests = () => {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
+    };
 
     /* ── size change handler ─────────────────────────────────── */
 
@@ -159,13 +177,23 @@ class MilSymbSupport extends React.Component {
     };
 
     syncLayers = () => {
-        // Remove previous layers first
+        // Cancel any in-flight requests from a previous sync
+        this.cancelInflightRequests();
+
+        // Remove previous OL layers from the map
         this.removeLayers();
 
         const milsymbLayers = this.props.theme?.milsymbLayers;
         if (!milsymbLayers || milsymbLayers.length === 0) {
             return;
         }
+
+        // Bump generation so stale responses from earlier syncs are ignored
+        const generation = ++this.syncGeneration;
+
+        // Fresh AbortController for this batch of requests
+        this.abortController = new AbortController();
+        const signal = this.abortController.signal;
 
         const assetsPath = ConfigUtils.getAssetsPath();
         // Resolve absolute API base from config (falls back to current origin)
@@ -174,11 +202,11 @@ class MilSymbSupport extends React.Component {
             : '';
 
         milsymbLayers.forEach(mlDef => {
-            this.loadMilSymbLayer(mlDef, apiBase);
+            this.loadMilSymbLayer(mlDef, apiBase, signal, generation);
         });
     };
 
-    loadMilSymbLayer = (mlDef, apiBase) => {
+    loadMilSymbLayer = (mlDef, apiBase, signal, generation) => {
         // If the URL from themes.json is already absolute, use it as-is;
         // otherwise prepend apiBase (same-origin or assetsPath origin).
         const rawGeo = mlDef.geojsonUrl;
@@ -186,7 +214,12 @@ class MilSymbSupport extends React.Component {
         const rawSym = mlDef.symbolBaseUrl || '/api/symbols';
         const symbolBaseUrl = (rawSym.startsWith('http')) ? rawSym : apiBase + rawSym;
 
-        axios.get(url).then(response => {
+        axios.get(url, {signal}).then(response => {
+            // Discard if a newer syncLayers has been triggered or component unmounted
+            if (generation !== this.syncGeneration || this.unmounted) {
+                return;
+            }
+
             const geojson = response.data;
             if (!geojson || geojson.type !== 'FeatureCollection') {
                 return;
@@ -221,6 +254,10 @@ class MilSymbSupport extends React.Component {
             this.props.map.addLayer(olLayer);
             this.olLayers[mlDef.title] = olLayer;
         }).catch(err => {
+            // Silently ignore intentional cancellations (AbortError / CanceledError)
+            if (axios.isCancel(err) || err?.name === 'AbortError' || err?.name === 'CanceledError') {
+                return;
+            }
             /* eslint-disable-next-line */
             console.warn(`[MilSymbSupport] Failed to load MilSymb layer "${mlDef.title}":`, err);
         });
