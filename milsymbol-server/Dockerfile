@@ -1,6 +1,7 @@
 FROM node:18-slim
 
 # Install canvas native dependencies (libpng, libjpeg, etc.)
+# Required by both milsymbol (canvas pkg) and @armyc2.c5isr.renderer/mil-sym-ts
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcairo2-dev \

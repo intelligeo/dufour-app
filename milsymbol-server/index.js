@@ -21,6 +21,24 @@ const ms = require("milsymbol");
 const { createCanvas, loadImage } = require("canvas");
 const url = require("url");
 
+// mil-sym-ts: tactical graphics (n-point) renderer — MIL-STD-2525D/E
+// Loaded lazily to avoid startup failures if the package is not yet installed.
+let milsymts = null;
+let WebRenderer = null;
+
+function loadMilSymTs() {
+  if (milsymts !== null) return milsymts;
+  try {
+    milsymts = require("@armyc2.c5isr.renderer/mil-sym-ts");
+    WebRenderer = milsymts.WebRenderer;
+    console.log("✅  mil-sym-ts loaded (MIL-STD-2525D/E tactical graphics)");
+  } catch (e) {
+    console.warn("⚠️  mil-sym-ts not available:", e.message);
+    milsymts = false;
+  }
+  return milsymts;
+}
+
 // Configuration via environment variables
 const hostname = os.hostname();
 const bindAddress = process.env.BIND_ADDRESS || "0.0.0.0";
@@ -107,6 +125,7 @@ const stats = {
   requests: 0,
   svgRendered: 0,
   pngRendered: 0,
+  tacticalRendered: 0,
   errors: 0
 };
 
@@ -138,25 +157,136 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({
       status: "online",
       service: "dufour-milsymbol-server",
-      version: "1.0.0",
+      version: "1.1.0",
       milsymbol_version: ms.version || "unknown",
+      milsymts_available: loadMilSymTs() !== false,
       supported_formats: ["SVG", "PNG"],
       supported_sidc: ["APP-6D (20 chars)", "MIL-STD-2525C (15 chars)"],
+      tactical_graphics: "GET /tactical?sidc=...&points=lon,lat+lon,lat&bbox=minLon,minLat,maxLon,maxLat&scale=50000",
       default_size: defaultSize,
       uptime_seconds: Math.floor((Date.now() - stats.startTime) / 1000),
       stats: {
         total_requests: stats.requests,
         svg_rendered: stats.svgRendered,
         png_rendered: stats.pngRendered,
+        tactical_rendered: stats.tacticalRendered,
         errors: stats.errors
       },
       usage: {
         svg: `GET /{SIDC}.svg?size=100&uniqueDesignation=HQ`,
         png: `GET /{SIDC}.png?size=100&uniqueDesignation=HQ`,
+        tactical: `GET /tactical?sidc=SIDC&points=lon1,lat1+lon2,lat2&bbox=minLon,minLat,maxLon,maxLat&scale=50000`,
         example_app6d: `GET /10031000001211000000.svg`,
-        example_2525c: `GET /SFG-UCI---.svg?uniqueDesignation=BA01`
+        example_2525c: `GET /SFG-UCI---.svg?uniqueDesignation=BA01`,
+        example_tactical: `GET /tactical?sidc=GHGPGLA-------X&points=7.0,47.0+7.1,47.05+7.05,47.1&bbox=6.9,46.95,7.2,47.15&scale=50000`
       }
     }));
+    return;
+  }
+
+  // ─── Tactical graphics endpoint (n-point, MIL-STD-2525D/E via mil-sym-ts) ───
+  // GET /tactical?sidc=GHGPGLA-------X
+  //              &points=lon1,lat1+lon2,lat2+...   (space-separated: use + or %20)
+  //              &bbox=minLon,minLat,maxLon,maxLat
+  //              &scale=50000                       (map scale denominator, metres/pixel)
+  //              &width=800&height=600              (pixel dimensions of viewport, optional)
+  //              &format=geosvg|geojson             (default: geosvg)
+  //              &modifiers=KEY:VALUE,...           (optional, e.g. T:Alpha,H:area1)
+  if (pathname === "/tactical") {
+    const lib = loadMilSymTs();
+    if (!lib) {
+      stats.errors++;
+      res.statusCode = 503;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "mil-sym-ts not available on this server" }));
+      return;
+    }
+
+    const q = urlParts.query;
+    const sidc = q.sidc || q.SIDC || "";
+    const pointsRaw = (q.points || "").replace(/\+/g, " ").trim();
+    const bbox = (q.bbox || "").trim();
+    const scale = parseFloat(q.scale || "50000");
+    const pixelWidth = parseInt(q.width || "800", 10);
+    const pixelHeight = parseInt(q.height || "600", 10);
+    const formatStr = (q.format || "geosvg").toLowerCase();
+    const modifiersRaw = (q.modifiers || "").trim();
+
+    if (!sidc) {
+      stats.errors++;
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Missing required parameter: sidc" }));
+      return;
+    }
+
+    if (!pointsRaw) {
+      stats.errors++;
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Missing required parameter: points (format: lon1,lat1+lon2,lat2+...)" }));
+      return;
+    }
+
+    // Build modifiers Map
+    const modifiersMap = new Map();
+    if (modifiersRaw) {
+      for (const pair of modifiersRaw.split(",")) {
+        const idx = pair.indexOf(":");
+        if (idx > 0) {
+          modifiersMap.set(pair.substring(0, idx).trim(), pair.substring(idx + 1).trim());
+        }
+      }
+    }
+
+    // Build attributes Map
+    const attributesMap = new Map();
+
+    // Choose output format constant
+    // WebRenderer constants: OUTPUT_FORMAT_KML=0, OUTPUT_FORMAT_GEOJSON=1, OUTPUT_FORMAT_GEOSVG=2, OUTPUT_FORMAT_JSON=3
+    let outputFormat;
+    let contentType;
+    if (formatStr === "geojson") {
+      outputFormat = WebRenderer.OUTPUT_FORMAT_GEOJSON;
+      contentType = "application/geo+json";
+    } else {
+      // geosvg (default) — SVG with embedded geographic anchor coordinates
+      outputFormat = WebRenderer.OUTPUT_FORMAT_GEOSVG;
+      contentType = "image/svg+xml";
+    }
+
+    try {
+      const result = WebRenderer.RenderSymbol2D(
+        "tac-" + sidc,      // id
+        sidc,               // name
+        "",                 // description
+        sidc,               // symbolCode
+        pointsRaw,          // controlPoints: "lon1,lat1 lon2,lat2 ..."
+        pixelWidth,         // pixelWidth
+        pixelHeight,        // pixelHeight
+        bbox || null,       // bbox: "minLon,minLat,maxLon,maxLat"
+        modifiersMap,       // symbolModifiers
+        attributesMap,      // symbolAttributes
+        outputFormat        // format
+      );
+
+      stats.tacticalRendered++;
+      res.statusCode = 200;
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      res.setHeader("X-SIDC", sidc);
+      res.end(result);
+    } catch (err) {
+      stats.errors++;
+      console.error(`[tactical] Error rendering ${sidc}: ${err.message}`);
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({
+        error: "Tactical graphic rendering failed",
+        sidc,
+        message: err.message
+      }));
+    }
     return;
   }
 
@@ -259,4 +389,7 @@ server.listen(port, bindAddress, () => {
   console.log(`   APP-6D example: http://${hostname}:${port}/10031000001211000000.svg`);
   console.log(`   2525C example:  http://${hostname}:${port}/SFG-UCI---.svg?uniqueDesignation=BA01`);
   console.log(`   Health check:   http://${hostname}:${port}/health`);
+  console.log(`   Tactical (n-pt): http://${hostname}:${port}/tactical?sidc=GHGPGLA-------X&points=7.0,47.0+7.1,47.05+7.05,47.1&bbox=6.9,46.95,7.2,47.15&scale=50000`);
+  // Try to preload mil-sym-ts at startup so errors are visible early
+  loadMilSymTs();
 });
