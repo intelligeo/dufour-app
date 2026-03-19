@@ -30,7 +30,16 @@ logger = logging.getLogger(__name__)
 # ── GeoJSON conversion ────────────────────────────────────────────────────────
 
 def milsymb_feature_to_geojson(feat: MilSymbFeature) -> Dict[str, Any]:
-    """Convert a single MilSymbFeature to a GeoJSON Feature dict."""
+    """Convert a single MilSymbFeature to a GeoJSON Feature dict.
+
+    All milsymbol-compatible modifiers are emitted as **flat** GeoJSON
+    properties so the frontend can forward them directly as query
+    parameters to the milsymbol-server or as options to
+    ``new ms.Symbol(sidc, options)``.
+
+    The property schema matches the milsymbol ``SymbolOptions`` interface:
+    ``sidc``, ``uniqueDesignation``, ``staffComments``, ``speed``, etc.
+    """
     coords = feat.coordinates  # [[lon, lat], ...]
 
     if feat.geometry_type == "Point":
@@ -53,21 +62,19 @@ def milsymb_feature_to_geojson(feat: MilSymbFeature) -> Dict[str, Any]:
             "coordinates": [list(c) for c in coords],
         }
 
-    # Build properties — include everything the frontend needs to render
+    # Build properties — flat milsymbol-compatible keys
     props: Dict[str, Any] = {
         "sidc": feat.sidc,
         "militaryName": feat.military_name,
         "symbolType": feat.geometry_type,
         "symbolScale": feat.symbol_scale,
+        "affiliation": feat.affiliation,
     }
-    # Flatten MSS attributes  (T → uniqueDesignation, etc.)
-    if feat.attributes:
-        props["mssAttributes"] = feat.attributes
-        # Map well-known Kadas attribute IDs to milsymbol query params
-        if "T" in feat.attributes:
-            props["uniqueDesignation"] = feat.attributes["T"]
-        if "XE" in feat.attributes:
-            props["xeCode"] = feat.attributes["XE"]
+
+    # Merge milsymbol modifiers as flat properties
+    # These map 1:1 to milsymbol SymbolOptions (uniqueDesignation, speed, etc.)
+    if feat.modifiers:
+        props.update(feat.modifiers)
 
     return {
         "type": "Feature",
@@ -77,7 +84,13 @@ def milsymb_feature_to_geojson(feat: MilSymbFeature) -> Dict[str, Any]:
 
 
 def milsymb_layer_to_geojson(layer: MilSymbLayerInfo) -> Dict[str, Any]:
-    """Convert a full MilSymbLayerInfo to a GeoJSON FeatureCollection."""
+    """Convert a full MilSymbLayerInfo to a GeoJSON FeatureCollection.
+
+    Since each MilSymbLayerInfo now represents a single feature
+    (one KadasMilxItem), the FeatureCollection will typically contain
+    exactly one Feature.  The metadata block carries per-layer info
+    that the frontend uses for styling.
+    """
     features = [milsymb_feature_to_geojson(f) for f in layer.features]
     return {
         "type": "FeatureCollection",
@@ -89,6 +102,7 @@ def milsymb_layer_to_geojson(layer: MilSymbLayerInfo) -> Dict[str, Any]:
         "metadata": {
             "layerId": layer.layer_id,
             "affiliation": layer.affiliation,
+            "parentLayerTitle": layer.parent_layer_title,
             "symbolSize": layer.symbol_size,
             "lineWidth": layer.line_width,
         },
@@ -128,7 +142,7 @@ def extract_milsymb_layers_from_qgs_xml(qgs_xml: str) -> List[MilSymbLayerInfo]:
     Useful for projects stored on disk as plain .qgs.
     """
     import xml.etree.ElementTree as ET
-    from services.qgz_parser import _guess_affiliation, MilSymbFeature
+    from services.qgz_parser import MilSymbFeature  # noqa: F401
 
     root = ET.fromstring(qgs_xml)
     parser = QGZParser.__new__(QGZParser)  # bypass __init__
@@ -162,23 +176,35 @@ def get_milsymb_layers_for_project(project_name: str) -> List[MilSymbLayerInfo]:
 
 def get_milsymb_geojson(project_name: str, layer_title: str) -> Optional[Dict[str, Any]]:
     """
-    Return a GeoJSON FeatureCollection for a specific military symbol layer.
+    Return a GeoJSON FeatureCollection for a specific military symbol sub-layer.
 
     Args:
         project_name: Project identifier
-        layer_title: Layer title (e.g. "BLUE FORCE")
+        layer_title: Layer title – URL-encoded with underscores for spaces
+                     and slashes (e.g. "BLUE_FORCE___gren_team_DELTA")
 
     Returns:
         GeoJSON dict or None if not found.
     """
     layers = get_milsymb_layers_for_project(project_name)
-    # Match by title (case-insensitive, with fallback to slug)
-    title_lower = layer_title.lower().replace("_", " ")
+
+    # Normalise the requested title for comparison:
+    # URL uses underscores for both spaces and slashes
+    def _normalise(s: str) -> str:
+        return s.lower().replace(" ", "_").replace("/", "_")
+
+    title_norm = _normalise(layer_title)
+
     for lyr in layers:
-        if lyr.title.lower() == title_lower:
+        if _normalise(lyr.title) == title_norm:
             return milsymb_layer_to_geojson(lyr)
-    # Try matching with underscores replaced by spaces
+
+    # Fallback: try matching without the parent prefix
     for lyr in layers:
-        if lyr.title.lower().replace(" ", "_") == layer_title.lower():
-            return milsymb_layer_to_geojson(lyr)
+        # e.g. "BLUE FORCE / gren team DELTA" → try just "gren_team_DELTA"
+        if " / " in lyr.title:
+            suffix = lyr.title.split(" / ", 1)[1]
+            if _normalise(suffix) == title_norm:
+                return milsymb_layer_to_geojson(lyr)
+
     return None

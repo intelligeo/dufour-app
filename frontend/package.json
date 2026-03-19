@@ -9,6 +9,7 @@
     "analyze": "npm run makeicons && webpack --mode production --env ANALYZE=1"
   },
   "dependencies": {
+    "@sourcepole/qwc-giro3d": "latest",
     "mgrs": "^2.1.0",
     "qwc2": "latest",
     "path-browserify": "^1.0.1"

@@ -227,15 +227,16 @@ class QWCService:
                             {
                                 "title": ml.title,
                                 "affiliation": ml.affiliation,
+                                "parentLayerTitle": ml.parent_layer_title,
                                 "featureCount": len(ml.features),
                                 "symbolSize": ml.symbol_size,
                                 "lineWidth": ml.line_width,
-                                "geojsonUrl": f"{api_base_url}/api/projects/{project_name}/milsymb/{ml.title.replace(' ', '_')}.geojson",
+                                "geojsonUrl": f"{api_base_url}/api/projects/{project_name}/milsymb/{ml.title.replace(' ', '_').replace('/', '_')}.geojson",
                                 "symbolBaseUrl": f"{api_base_url}/api/symbols",
                             }
                             for ml in milsymb_layers
                         ]
-                        logger.info(f"themes: {project_name} has {len(milsymb_layers)} MilSymb layer(s)")
+                        logger.info(f"themes: {project_name} has {len(milsymb_layers)} MilSymb sub-layer(s)")
                 except Exception as milsymb_err:
                     logger.debug(f"themes: MilSymb extraction skipped for {project_name}: {milsymb_err}")
 

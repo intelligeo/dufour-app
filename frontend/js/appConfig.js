@@ -1,6 +1,7 @@
 /**
  * Dufour.app QWC2 Application Configuration
- * All plugins registered for comprehensive Web GIS functionality
+ * Plugin registration aligned with qwc2-demo-app.
+ * Custom additions: coordinateFormatter (MGRS/DMS/DM), MilSymb plugins.
  */
 
 /* eslint-disable new-cap */
@@ -13,7 +14,6 @@ import AppMenu from 'qwc2/components/AppMenu';
 import FullscreenSwitcher from 'qwc2/components/FullscreenSwitcher';
 import SearchBox from 'qwc2/components/SearchBox';
 import Toolbar from 'qwc2/components/Toolbar';
-
 import APIPlugin from 'qwc2/plugins/API';
 import AttributeTablePlugin from 'qwc2/plugins/AttributeTable';
 import AuthenticationPlugin from 'qwc2/plugins/Authentication';
@@ -21,6 +21,7 @@ import BackgroundSwitcherPlugin from 'qwc2/plugins/BackgroundSwitcher';
 import BookmarkPlugin from 'qwc2/plugins/Bookmark';
 import BottomBarPlugin from 'qwc2/plugins/BottomBar';
 import CookiePopupPlugin from 'qwc2/plugins/CookiePopup';
+import CyclomediaPlugin from 'qwc2/plugins/Cyclomedia';
 import EditingPlugin from 'qwc2/plugins/Editing';
 import FeatureFormPlugin from 'qwc2/plugins/FeatureForm';
 import FeatureSearchPlugin from 'qwc2/plugins/FeatureSearch';
@@ -43,10 +44,13 @@ import MapTipPlugin from 'qwc2/plugins/MapTip';
 import MeasurePlugin from 'qwc2/plugins/Measure';
 import NewsPopupPlugin from 'qwc2/plugins/NewsPopup';
 import ObjectListPlugin from 'qwc2/plugins/ObjectList';
+import ObliqueViewPlugin from 'qwc2/plugins/ObliqueView';
 import OverviewMapPlugin from 'qwc2/plugins/OverviewMap';
+import PanoramaxPlugin from 'qwc2/plugins/Panoramax';
 import PortalPlugin from 'qwc2/plugins/Portal';
 import PrintPlugin from 'qwc2/plugins/Print';
 import RedliningPlugin from 'qwc2/plugins/Redlining';
+import ReportsPlugin from 'qwc2/plugins/Reports';
 import RoutingPlugin from 'qwc2/plugins/Routing';
 import ScratchDrawingPlugin from 'qwc2/plugins/ScratchDrawing';
 import SettingsPlugin from 'qwc2/plugins/Settings';
@@ -56,8 +60,8 @@ import TaskButtonPlugin from 'qwc2/plugins/TaskButton';
 import ThemeSwitcherPlugin from 'qwc2/plugins/ThemeSwitcher';
 import TimeManagerPlugin from 'qwc2/plugins/TimeManager';
 import TopBarPlugin from 'qwc2/plugins/TopBar';
+import View3DPlugin from 'qwc2/plugins/View3D';
 import {ZoomInPlugin, ZoomOutPlugin} from 'qwc2/plugins/ZoomButtons';
-
 import EditingSupport from 'qwc2/plugins/map/EditingSupport';
 import LocateSupport from 'qwc2/plugins/map/LocateSupport';
 import MeasurementSupport from 'qwc2/plugins/map/MeasurementSupport';
@@ -65,11 +69,10 @@ import RedliningSupport from 'qwc2/plugins/map/RedliningSupport';
 import SnappingSupport from 'qwc2/plugins/map/SnappingSupport';
 import BufferSupport from 'qwc2/plugins/redlining/RedliningBufferSupport';
 
-import MilSymbSupport from './plugins/MilSymbSupport';
-import MilSymbSizeSlider from './plugins/MilSymbSizeSlider';
-
 import defaultLocaleData from '../static/translations/en-US.json';
 import {customAttributeCalculator, attributeTransform, customExporters} from './IdentifyExtensions';
+import MilSymbSizeSlider from './plugins/MilSymbSizeSlider';
+import MilSymbSupport from './plugins/MilSymbSupport';
 
 import CoordinatesUtils from 'qwc2/utils/CoordinatesUtils';
 import LocaleUtils from 'qwc2/utils/LocaleUtils';
@@ -130,15 +133,15 @@ export default {
                 MilSymbSupport: MilSymbSupport
             }),
             APIPlugin: APIPlugin,
-            AttributeTablePlugin: AttributeTablePlugin(),
+            AttributeTablePlugin: AttributeTablePlugin(/* CustomEditingInterface */),
             AuthenticationPlugin: AuthenticationPlugin,
             BackgroundSwitcherPlugin: BackgroundSwitcherPlugin,
             BookmarkPlugin: BookmarkPlugin,
             BottomBarPlugin: BottomBarPlugin,
             CookiePopupPlugin: CookiePopupPlugin,
-            EditingPlugin: EditingPlugin(),
-            FeatureFormPlugin: FeatureFormPlugin(),
-            FeatureSearchPlugin: FeatureSearchPlugin,
+            CyclomediaPlugin: CyclomediaPlugin,
+            EditingPlugin: EditingPlugin(/* CustomEditingInterface */),
+            FeatureFormPlugin: FeatureFormPlugin(/* CustomEditingInterface */),
             GeometryDigitizerPlugin: GeometryDigitizerPlugin,
             HeightProfilePlugin: HeightProfilePlugin,
             HelpPlugin: HelpPlugin(),
@@ -156,14 +159,18 @@ export default {
             MapTipPlugin: MapTipPlugin,
             MeasurePlugin: MeasurePlugin,
             NewsPopupPlugin: NewsPopupPlugin,
-            ObjectListPlugin: ObjectListPlugin(),
+            ObjectListPlugin: ObjectListPlugin(/* CustomEditingInterface */),
+            ObliqueViewPlugin: ObliqueViewPlugin,
             OverviewMapPlugin: OverviewMapPlugin,
+            PanoramaxPlugin: PanoramaxPlugin,
             PortalPlugin: PortalPlugin,
             PrintPlugin: PrintPlugin,
             RedliningPlugin: RedliningPlugin({
                 BufferSupport: BufferSupport
             }),
+            ReportsPlugin: ReportsPlugin,
             RoutingPlugin: RoutingPlugin,
+            FeatureSearchPlugin: FeatureSearchPlugin,
             ScratchDrawingPlugin: ScratchDrawingPlugin,
             SettingsPlugin: SettingsPlugin,
             SharePlugin: SharePlugin,
@@ -176,6 +183,23 @@ export default {
                 Search: SearchBox,
                 Toolbar: Toolbar,
                 FullscreenSwitcher: FullscreenSwitcher
+            }),
+            View3DPlugin: View3DPlugin({
+                BackgroundSwitcher3D: lazy(() => import('qwc2/plugins/map3d/BackgroundSwitcher3D')),
+                BottomBar3D: lazy(() => import('qwc2/plugins/map3d/BottomBar3D')),
+                Compare3D: lazy(() => import('qwc2/plugins/map3d/Compare3D')),
+                Draw3D: lazy(() => import('qwc2/plugins/map3d/Draw3D')),
+                ExportObjects3D: lazy(() => import('qwc2/plugins/map3d/ExportObjects3D')),
+                HideObjects3D: lazy(() => import('qwc2/plugins/map3d/HideObjects3D')),
+                Identify3D: lazy(() => import('qwc2/plugins/map3d/Identify3D')),
+                LayerTree3D: lazy(() => import('qwc2/plugins/map3d/LayerTree3D')),
+                MapCopyright3D: lazy(() => import('qwc2/plugins/map3d/MapCopyright3D')),
+                MapExport3D: lazy(() => import('qwc2/plugins/map3d/MapExport3D')),
+                MapLight3D: lazy(() => import('qwc2/plugins/map3d/MapLight3D')),
+                Measure3D: lazy(() => import('qwc2/plugins/map3d/Measure3D')),
+                OverviewMap3D: lazy(() => import('qwc2/plugins/map3d/OverviewMap3D')),
+                Settings3D: lazy(() => import('qwc2/plugins/map3d/Settings3D')),
+                TopBar3D: lazy(() => import('qwc2/plugins/map3d/TopBar3D'))
             }),
             ZoomInPlugin: ZoomInPlugin,
             ZoomOutPlugin: ZoomOutPlugin,
@@ -193,6 +217,6 @@ export default {
         }
     },
     actionLogger: (action) => {
-        /* Logging placeholder for analytics integration */
+        /* Do something with action, i.e. Piwik/Mamoto event tracking */
     }
 };

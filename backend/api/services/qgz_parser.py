@@ -46,26 +46,87 @@ class ProjectInfo:
     qgz_size: int  # Original file size in bytes
 
 
+# ── MSS XML Attribute ID → milsymbol JS option mapping ────────────────────────
+# Kadas stores symbol modifiers in mssString as <Attribute ID="X">value</Attribute>.
+# These must be mapped to the milsymbol JS library's SymbolOptions property names
+# so the frontend (and the milsymbol-server) can render them correctly.
+#
+# Reference: https://github.com/spatialillusions/milsymbol  src/ms/symbol.js
+#            index.d.ts  SymbolOptions interface
+
+MSS_TO_MILSYMBOL: Dict[str, str] = {
+    "C":  "quantity",                  # Field C  – number of items
+    "F":  "reinforcedReduced",         # Field F  – (+), (-), (±)
+    "G":  "staffComments",             # Field G
+    "H":  "additionalInformation",     # Field H
+    "J":  "evaluationRating",          # Field J
+    "K":  "combatEffectiveness",       # Field K
+    "L":  "signatureEquipment",        # Field L
+    "M":  "higherFormation",           # Field M
+    "N":  "hostile",                   # Field N
+    "P":  "iffSif",                    # Field P  – IFF/SIF
+    "Q":  "direction",                 # Field Q  – direction of movement (number)
+    "R2": "sigint",                    # Field R2 – SIGINT
+    "T":  "uniqueDesignation",         # Field T  – unit designation
+    "V":  "type",                      # Field V  – equipment type
+    "W":  "dtg",                       # Field W  – date-time group
+    "X":  "altitudeDepth",             # Field X
+    "XE": "altitudeDepth",             # Kadas alias for X
+    "Y":  "location",                  # Field Y
+    "Z":  "speed",                     # Field Z
+    "AA": "specialHeadquarters",       # Field AA
+    "AC": "country",                   # Field AC
+    "AD": "platformType",              # Field AD
+    "AE": "equipmentTeardownTime",     # Field AE
+    "AF": "commonIdentifier",          # Field AF
+    "AG": "auxiliaryEquipmentIndicator",# Field AG
+    "AH": "headquartersElement",       # Field AH
+    "AI": "installationComposition",   # Field AI
+    "AO": "engagementBar",             # Field AO
+    "AQ": "guardedUnit",              # Field AQ
+    "AR": "specialDesignator",         # Field AR
+}
+
+# Keys whose milsymbol option expects a number (not a string)
+_NUMERIC_MILSYMBOL_KEYS = {"direction"}
+
+
 # ── MilSymb (military symbol) dataclasses ─────────────────────────────────────
 
 @dataclass
 class MilSymbFeature:
-    """A single military symbol / tactical graphic extracted from KadasMilxItem"""
+    """
+    A single military symbol / tactical graphic extracted from KadasMilxItem.
+
+    Property names under ``modifiers`` match the milsymbol JS library's
+    ``SymbolOptions`` interface so they can be forwarded as-is to
+    ``new ms.Symbol(sidc, modifiers)`` or used as query parameters on the
+    milsymbol-server (``/SIDC.svg?uniqueDesignation=...&speed=...``).
+    """
     sidc: str                           # MIL-STD-2525C SIDC  e.g. "SFGPUC-----A--G"
     military_name: str                  # Human label  e.g. "gren team DELTA"
     geometry_type: str                  # "Point", "LineString", "Polygon"
     coordinates: List[List[float]]      # [[lon, lat], …]  WGS 84
-    attributes: Dict[str, str] = field(default_factory=dict)   # MSS XML attrs {T: …, XE: …}
+    modifiers: Dict[str, str] = field(default_factory=dict)   # milsymbol-compatible {uniqueDesignation: …, speed: …}
+    mss_raw_attributes: Dict[str, str] = field(default_factory=dict)  # Original MSS attrs {T: …, XE: …} (kept for debugging)
+    affiliation: str = "unknown"        # Per-feature affiliation
     symbol_scale: float = 1.0
 
 
 @dataclass
 class MilSymbLayerInfo:
-    """A KadasMilxLayer with its contained features"""
+    """
+    One logical layer for a single KadasMilxItem feature.
+
+    After the refactoring each KadasMilxItem inside a KadasMilxLayer
+    becomes its own MilSymbLayerInfo so the frontend can toggle and
+    style individual symbols independently.
+    """
     layer_id: str
-    title: str                          # e.g. "BLUE FORCE"
+    title: str                          # e.g. "BLUE FORCE / gren team DELTA"
     affiliation: str                    # "friendly" / "hostile" / "neutral" / "unknown"
     crs: str                            # "EPSG:4326"
+    parent_layer_title: str = ""        # Original KadasMilxLayer title
     extent: Optional[Tuple[float, float, float, float]] = None
     features: List[MilSymbFeature] = field(default_factory=list)
     symbol_size: int = 60
@@ -268,16 +329,26 @@ class QGZParser:
 
     def parse_milsymb_layers(self) -> List[MilSymbLayerInfo]:
         """
-        Extract KadasMilxLayer plugin layers and their MapItem features.
+        Extract KadasMilxLayer plugin layers and split each MapItem into
+        its own ``MilSymbLayerInfo``.
 
-        Each ``<maplayer type="plugin" name="KadasMilxLayer">`` may contain
-        one or more ``<MapItem name="KadasMilxItem">`` whose CDATA holds a
-        JSON payload with SIDC, coordinates and attributes.
+        **Splitting rationale:**  A single KadasMilxLayer in QGIS may
+        bundle dozens of symbols (friendly units, hostile contacts, etc.).
+        By exploding each ``KadasMilxItem`` into its own layer the
+        frontend can:
+          • toggle individual symbols on/off in the layer tree,
+          • apply milsymbol modifiers per symbol,
+          • style each symbol independently.
+
+        The resulting ``MilSymbLayerInfo.title`` uses the format
+        ``"<parent layer title> / <militaryName or SIDC>"`` so the
+        provenance is clear.
 
         Returns:
-            List of MilSymbLayerInfo (empty if no military symbol layers present).
+            List of MilSymbLayerInfo – one per KadasMilxItem (empty if no
+            military symbol layers are present).
         """
-        if not self.root:
+        if self.root is None:
             raise ValueError("Must call parse_xml() first")
 
         milsymb_layers: List[MilSymbLayerInfo] = []
@@ -286,13 +357,13 @@ class QGZParser:
             if ml.get('type') != 'plugin' or ml.get('name') != 'KadasMilxLayer':
                 continue
 
-            # Layer metadata
+            # Parent layer metadata
             id_elem = ml.find('id')
-            layer_id = id_elem.text if id_elem is not None and id_elem.text else ''
-            title = ml.get('title', '') or ''
-            if not title:
+            parent_layer_id = id_elem.text if id_elem is not None and id_elem.text else ''
+            parent_title = ml.get('title', '') or ''
+            if not parent_title:
                 ln = ml.find('layername')
-                title = ln.text if ln is not None and ln.text else layer_id
+                parent_title = ln.text if ln is not None and ln.text else parent_layer_id
 
             crs_elem = ml.find('.//spatialrefsys/authid')
             crs = crs_elem.text if crs_elem is not None and crs_elem.text else 'EPSG:4326'
@@ -300,12 +371,12 @@ class QGZParser:
             symbol_size = int(ml.get('milx_symbol_size', '60') or '60')
             line_width = int(ml.get('milx_line_width', '2') or '2')
 
-            # Extent
-            extent: Optional[Tuple[float, float, float, float]] = None
+            # Parent extent (optional)
+            parent_extent: Optional[Tuple[float, float, float, float]] = None
             ext_el = ml.find('extent')
             if ext_el is not None:
                 try:
-                    extent = (
+                    parent_extent = (
                         float(ext_el.findtext('xmin', '0')),
                         float(ext_el.findtext('ymin', '0')),
                         float(ext_el.findtext('xmax', '0')),
@@ -314,30 +385,46 @@ class QGZParser:
                 except (ValueError, TypeError):
                     pass
 
-            # Parse MapItems
-            features: List[MilSymbFeature] = []
+            # ── Iterate MapItems – one layer per feature ──
+            feat_idx = 0
             for mi in ml.findall('MapItem'):
                 if mi.get('name') != 'KadasMilxItem':
                     continue
                 feat = self._parse_milsymb_item(mi)
-                if feat:
-                    features.append(feat)
+                if not feat:
+                    continue
 
-            affiliation = _guess_affiliation(features) if features else 'unknown'
+                feat_idx += 1
+                # Build a human-readable title for this sub-layer
+                feat_label = feat.military_name or feat.sidc
+                sub_title = f"{parent_title} / {feat_label}" if parent_title else feat_label
 
-            milsymb_layers.append(MilSymbLayerInfo(
-                layer_id=layer_id,
-                title=title,
-                affiliation=affiliation,
-                crs=crs,
-                extent=extent,
-                features=features,
-                symbol_size=symbol_size,
-                line_width=line_width,
-            ))
+                # Compute per-feature extent from coordinates
+                feat_extent: Optional[Tuple[float, float, float, float]] = None
+                if feat.coordinates:
+                    xs = [c[0] for c in feat.coordinates]
+                    ys = [c[1] for c in feat.coordinates]
+                    feat_extent = (min(xs), min(ys), max(xs), max(ys))
+
+                milsymb_layers.append(MilSymbLayerInfo(
+                    layer_id=f"{parent_layer_id}_feat{feat_idx}",
+                    title=sub_title,
+                    affiliation=feat.affiliation,
+                    crs=crs,
+                    parent_layer_title=parent_title,
+                    extent=feat_extent or parent_extent,
+                    features=[feat],        # exactly one feature per layer
+                    symbol_size=symbol_size,
+                    line_width=line_width,
+                ))
+                logger.debug(
+                    f"MilSymb sub-layer '{sub_title}': sidc={feat.sidc}, "
+                    f"affiliation={feat.affiliation}, modifiers={list(feat.modifiers.keys())}"
+                )
+
             logger.info(
-                f"MilSymb layer '{title}': {len(features)} features, "
-                f"affiliation={affiliation}"
+                f"MilSymb parent layer '{parent_title}': "
+                f"split into {feat_idx} individual sub-layers"
             )
 
         return milsymb_layers
@@ -346,7 +433,12 @@ class QGZParser:
 
     @staticmethod
     def _parse_milsymb_item(mi_elem: ET.Element) -> Optional[MilSymbFeature]:
-        """Parse a single ``<MapItem name="KadasMilxItem">`` element."""
+        """Parse a single ``<MapItem name="KadasMilxItem">`` element.
+
+        Produces a MilSymbFeature whose ``modifiers`` dict uses milsymbol
+        JS-compatible property names (e.g. ``uniqueDesignation`` instead
+        of MSS attribute ``T``).
+        """
         raw = mi_elem.text
         if not raw:
             return None
@@ -378,6 +470,24 @@ class QGZParser:
         if not sidc:
             return None
 
+        # ── Map MSS attrs → milsymbol modifiers ──
+        modifiers: Dict[str, str] = {}
+        for mss_key, mss_val in mss_attrs.items():
+            ms_key = MSS_TO_MILSYMBOL.get(mss_key)
+            if ms_key:
+                if ms_key in _NUMERIC_MILSYMBOL_KEYS:
+                    try:
+                        modifiers[ms_key] = str(int(float(mss_val)))
+                    except (ValueError, TypeError):
+                        modifiers[ms_key] = mss_val
+                else:
+                    modifiers[ms_key] = mss_val
+
+        # ── Per-feature affiliation from SIDC 2nd character ──
+        affiliation = 'unknown'
+        if len(sidc) >= 2:
+            affiliation = _AFFILIATION_MAP_2525C.get(sidc[1].upper(), 'unknown')
+
         # ── Geometry ──
         points = state.get('points', [])
         if not points:
@@ -396,7 +506,9 @@ class QGZParser:
             military_name=props.get('militaryName', ''),
             geometry_type=geom_type,
             coordinates=points,   # [[lon, lat], ...]
-            attributes=mss_attrs,
+            modifiers=modifiers,
+            mss_raw_attributes=mss_attrs,
+            affiliation=affiliation,
             symbol_scale=props.get('symbolScale', 1.0),
         )
         

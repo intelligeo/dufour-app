@@ -615,10 +615,10 @@ async def upload_and_migrate_project(
                         'features_count': rec.features_count,
                     })
 
-                # ── MilSymb layers: one project_layers row per KadasMilxLayer ──
-                # Each maplayer[@type='plugin'][@name='KadasMilxLayer'] in the
-                # .qgz becomes a separate project_layers row so the layer tree
-                # and catalog reflect the original project structure.
+                # ── MilSymb layers: one project_layers row per KadasMilxItem ──
+                # Each KadasMilxItem inside a KadasMilxLayer becomes its own
+                # project_layers row so the layer tree and catalog reflect
+                # individual military symbols.
                 try:
                     from services.milsymb_service import extract_milsymb_layers_from_qgz
                     milsymb_layers = extract_milsymb_layers_from_qgz(qgz_bytes)
@@ -639,7 +639,7 @@ async def upload_and_migrate_project(
                             'project_id': project_id,
                             'layer_name': ml.title,
                             'layer_type': 'milsymb',
-                            'geometry_type': 'Mixed',
+                            'geometry_type': ml.features[0].geometry_type if ml.features else 'Point',
                             'source_type': 'milsymb',
                             'table_name': '',
                             'datasource': f'milsymb://{ml.layer_id}',
@@ -648,7 +648,7 @@ async def upload_and_migrate_project(
                         })
                     if milsymb_layers:
                         logger.info(
-                            f"Registered {len(milsymb_layers)} MilSymb layer(s) "
+                            f"Registered {len(milsymb_layers)} MilSymb sub-layer(s) "
                             f"in project_layers for '{name}'"
                         )
                 except Exception as milsymb_err:
@@ -1630,12 +1630,13 @@ async def list_milsymb_layers(project_name: str):
                 "layer_id": lyr.layer_id,
                 "title": lyr.title,
                 "affiliation": lyr.affiliation,
+                "parent_layer_title": lyr.parent_layer_title,
                 "crs": lyr.crs,
                 "extent": list(lyr.extent) if lyr.extent else None,
                 "feature_count": len(lyr.features),
                 "symbol_size": lyr.symbol_size,
                 "line_width": lyr.line_width,
-                "geojson_url": f"/api/projects/{project_name}/milsymb/{lyr.title.replace(' ', '_')}.geojson",
+                "geojson_url": f"/api/projects/{project_name}/milsymb/{lyr.title.replace(' ', '_').replace('/', '_')}.geojson",
             }
             for lyr in layers
         ],
@@ -1647,11 +1648,16 @@ async def get_milsymb_layer_geojson(project_name: str, layer_name: str):
     """
     # Military Symbol Layer GeoJSON
 
-    Return a GeoJSON FeatureCollection for a specific military symbol layer.
-    Each Feature contains `sidc`, `militaryName`, and geometry
-    ready for client-side rendering via milsymbol.
+    Return a GeoJSON FeatureCollection for a specific military symbol
+    sub-layer (one per KadasMilxItem).
 
-    Layer name uses underscores for spaces (e.g. `BLUE_FORCE`).
+    Each Feature carries milsymbol-compatible modifier properties
+    (``sidc``, ``uniqueDesignation``, ``speed``, ``staffComments``, …)
+    that can be forwarded directly to ``new ms.Symbol(sidc, options)``
+    or used as query parameters on the milsymbol-server.
+
+    Layer name uses underscores for spaces and slashes
+    (e.g. ``BLUE_FORCE___gren_team_DELTA``).
     """
     from services.milsymb_service import get_milsymb_geojson
     geojson = get_milsymb_geojson(project_name, layer_name)
