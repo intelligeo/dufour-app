@@ -196,6 +196,8 @@ async def run_db_migrations():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true",
         # public.projects — per-project schema pointer
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS schema_name VARCHAR(63)",
+        # public.projects — preferred basemap background layer
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS basemap VARCHAR(100)",
         # public.project_layers — enriched metadata columns
         "ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS crs VARCHAR(50)",
         "ALTER TABLE project_layers ADD COLUMN IF NOT EXISTS features_count INTEGER DEFAULT 0",
