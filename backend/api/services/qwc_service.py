@@ -32,10 +32,16 @@ class QWCService:
         self.qgis_server_url = os.getenv('QGIS_SERVER_URL', 'http://qgis-server:8080')
     
     
-    async def generate_theme_config(self, project_name: str) -> Dict[str, Any]:
+    async def generate_theme_config(self, project_name: str, basemap: Optional[str] = None) -> Dict[str, Any]:
         """
-        Generate QWC2 theme configuration from QGIS project
-        Reads .qgs XML and creates compatible theme JSON
+        Generate QWC2 theme configuration from QGIS project.
+
+        Args:
+            project_name: Project slug
+            basemap: Optional preferred background layer name
+                     (e.g. 'cartodb_dark_matter').  When provided the named
+                     layer is placed first in the backgroundLayers list so it
+                     becomes the default visible basemap.
         """
         project_file = self.projects_dir / f"{project_name}.qgs"
         
@@ -76,7 +82,7 @@ class QWCService:
             "scales": scales,
             "printScales": scales,
             "printResolutions": [96],
-            "backgroundLayers": self._get_background_layers(),
+            "backgroundLayers": self._get_background_layers(basemap=basemap),
             "themeLayers": theme_layers,
             "searchProviders": ["coordinates"],
             "editConfig": {},
@@ -227,16 +233,15 @@ class QWCService:
                             {
                                 "title": ml.title,
                                 "affiliation": ml.affiliation,
-                                "parentLayerTitle": ml.parent_layer_title,
                                 "featureCount": len(ml.features),
                                 "symbolSize": ml.symbol_size,
                                 "lineWidth": ml.line_width,
-                                "geojsonUrl": f"{api_base_url}/api/projects/{project_name}/milsymb/{ml.title.replace(' ', '_').replace('/', '_')}.geojson",
+                                "geojsonUrl": f"{api_base_url}/api/projects/{project_name}/milsymb/{ml.title.replace(' ', '_')}.geojson",
                                 "symbolBaseUrl": f"{api_base_url}/api/symbols",
                             }
                             for ml in milsymb_layers
                         ]
-                        logger.info(f"themes: {project_name} has {len(milsymb_layers)} MilSymb sub-layer(s)")
+                        logger.info(f"themes: {project_name} has {len(milsymb_layers)} MilSymb layer(s)")
                 except Exception as milsymb_err:
                     logger.debug(f"themes: MilSymb extraction skipped for {project_name}: {milsymb_err}")
 
@@ -705,12 +710,16 @@ class QWCService:
         return list(reversed(layers))
     
     
-    def _get_background_layers(self) -> List[Dict[str, Any]]:
+    def _get_background_layers(self, basemap: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Get default background layers configuration
-        Swiss Topo layers for Dufour-app
+        Get default background layers configuration.
+        Swiss Topo layers for Dufour-app.
+
+        If *basemap* is given and matches a known background layer name,
+        that layer is placed first (visible=True) and all others get
+        visibility=False.
         """
-        return [
+        layers = [
             {
                 "name": "swisstopo",
                 "title": "swisstopo Maps",
@@ -737,3 +746,23 @@ class QWCService:
                 "visibility": False
             }
         ]
+
+        if basemap:
+            # Move matched basemap to the front and set visibility
+            found = False
+            for lyr in layers:
+                if lyr["name"] == basemap:
+                    lyr["visibility"] = True
+                    found = True
+                else:
+                    lyr["visibility"] = False
+
+            if found:
+                layers.sort(key=lambda l: l["name"] != basemap)
+            else:
+                logger.warning(
+                    f"Basemap '{basemap}' not found in background layers — "
+                    f"keeping default order"
+                )
+
+        return layers

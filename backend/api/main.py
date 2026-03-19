@@ -373,6 +373,7 @@ async def upload_and_migrate_project(
     title: Optional[str] = Form(None, description="Display title", example="My Awesome Project"),
     description: Optional[str] = Form(None, description="Project description"),
     is_public: bool = Form(False, description="Public visibility"),
+    basemap: Optional[str] = Form(None, description="Background layer name from themes.json (e.g. 'swisstopo_national', 'osm')", example="swisstopo_national"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
     current_user: dict = Depends(get_current_user),
 ):
@@ -518,10 +519,11 @@ async def upload_and_migrate_project(
                     logger.info(f"Saved companion: {df.filename} ({len(df_content)} bytes)")
 
             # Parse project, create per-project schema, extract feature tables
-            project_info, layer_records, qgz_bytes, proj_schema = project_migrator.migrate_project(
+            project_info, layer_records, qgz_bytes, proj_schema, milsymb_results = project_migrator.migrate_project(
                 qgz_path=temp_file,
                 project_name=name,
                 companion_files=companion_paths if companion_paths else None,
+                basemap=basemap,
             )
             
             # Store project in database (public.projects central catalog)
@@ -529,13 +531,13 @@ async def upload_and_migrate_project(
             insert_sql = text("""
                 INSERT INTO projects (
                     id, user_id, name, title, description, is_public,
-                    qgz_data, qgz_size, crs, schema_name,
+                    qgz_data, qgz_size, crs, schema_name, basemap,
                     extent_minx, extent_miny, extent_maxx, extent_maxy,
                     created_at, updated_at
                 )
                 VALUES (
                     :id, :user_id, :name, :title, :description, :is_public,
-                    :qgz_data, :qgz_size, :crs, :schema_name,
+                    :qgz_data, :qgz_size, :crs, :schema_name, :basemap,
                     :minx, :miny, :maxx, :maxy,
                     :created_at, :updated_at
                 )
@@ -547,6 +549,7 @@ async def upload_and_migrate_project(
                     qgz_size = EXCLUDED.qgz_size,
                     crs = EXCLUDED.crs,
                     schema_name = EXCLUDED.schema_name,
+                    basemap = EXCLUDED.basemap,
                     extent_minx = EXCLUDED.extent_minx,
                     extent_miny = EXCLUDED.extent_miny,
                     extent_maxx = EXCLUDED.extent_maxx,
@@ -567,6 +570,7 @@ async def upload_and_migrate_project(
                     'qgz_size': len(qgz_bytes),
                     'crs': project_info.crs,
                     'schema_name': proj_schema,
+                    'basemap': basemap,
                     'minx': project_info.extent[0],
                     'miny': project_info.extent[1],
                     'maxx': project_info.extent[2],
@@ -615,14 +619,13 @@ async def upload_and_migrate_project(
                         'features_count': rec.features_count,
                     })
 
-                # ── MilSymb layers: one project_layers row per KadasMilxItem ──
-                # Each KadasMilxItem inside a KadasMilxLayer becomes its own
-                # project_layers row so the layer tree and catalog reflect
-                # individual military symbols.
+                # ── MilSymb layers: one project_layers row per KadasMilxLayer ──
+                # Each maplayer[@type='plugin'][@name='KadasMilxLayer'] in the
+                # .qgz becomes a separate project_layers row so the layer tree
+                # and catalog reflect the original project structure.
+                # Uses milsymb_results from the migration pipeline (already in PostGIS).
                 try:
-                    from services.milsymb_service import extract_milsymb_layers_from_qgz
-                    milsymb_layers = extract_milsymb_layers_from_qgz(qgz_bytes)
-                    for ml in milsymb_layers:
+                    for mr in milsymb_results:
                         conn.execute(text("""
                             INSERT INTO project_layers (
                                 id, project_id, layer_name, layer_type,
@@ -637,25 +640,31 @@ async def upload_and_migrate_project(
                         """), {
                             'id': str(uuid.uuid4()),
                             'project_id': project_id,
-                            'layer_name': ml.title,
+                            'layer_name': mr['layer_title'],
                             'layer_type': 'milsymb',
-                            'geometry_type': ml.features[0].geometry_type if ml.features else 'Point',
+                            'geometry_type': 'Mixed',
                             'source_type': 'milsymb',
-                            'table_name': '',
-                            'datasource': f'milsymb://{ml.layer_id}',
-                            'crs': ml.crs,
-                            'features_count': len(ml.features),
+                            'table_name': mr['table_name'] if mr['success'] else '',
+                            'datasource': f"milsymb://{mr['layer_id']}",
+                            'crs': f"EPSG:{mr['srid']}",
+                            'features_count': mr['features_count'],
                         })
-                    if milsymb_layers:
+                    if milsymb_results:
                         logger.info(
-                            f"Registered {len(milsymb_layers)} MilSymb sub-layer(s) "
+                            f"Registered {len(milsymb_results)} MilSymb layer(s) "
                             f"in project_layers for '{name}'"
                         )
                 except Exception as milsymb_err:
                     logger.warning(f"MilSymb project_layers registration failed: {milsymb_err}")
 
                 conn.commit()
-            
+
+            # Generate QWC2 theme configuration (with preferred basemap)
+            try:
+                await qwc_service.generate_theme_config(name, basemap=basemap)
+            except Exception as qwc_err:
+                logger.warning(f"QWC theme generation failed (non-fatal): {qwc_err}")
+
             return {
                 "success": True,
                 "project": {
@@ -667,6 +676,7 @@ async def upload_and_migrate_project(
                     "crs": project_info.crs,
                     "extent": project_info.extent,
                     "schema_name": proj_schema,
+                    "basemap": basemap,
                     "layers_count": len(layer_records),
                     "qgz_size": len(qgz_bytes)
                 },
@@ -687,7 +697,19 @@ async def upload_and_migrate_project(
                         "error": r.error,
                     }
                     for r in layer_records
-                ]
+                ],
+                "milsymb_layers": [
+                    {
+                        "layer_id": mr['layer_id'],
+                        "layer_title": mr['layer_title'],
+                        "table_name": mr['table_name'],
+                        "features_count": mr['features_count'],
+                        "srid": mr['srid'],
+                        "success": mr['success'],
+                        "error": mr.get('error'),
+                    }
+                    for mr in milsymb_results
+                ],
             }
             
         finally:
@@ -765,7 +787,7 @@ async def publish_project(
         )
         
         # Generate QWC2 theme configuration
-        await qwc_service.generate_theme_config(name)
+        await qwc_service.generate_theme_config(name)  # legacy: no basemap
         
         return result
         
@@ -1630,13 +1652,12 @@ async def list_milsymb_layers(project_name: str):
                 "layer_id": lyr.layer_id,
                 "title": lyr.title,
                 "affiliation": lyr.affiliation,
-                "parent_layer_title": lyr.parent_layer_title,
                 "crs": lyr.crs,
                 "extent": list(lyr.extent) if lyr.extent else None,
                 "feature_count": len(lyr.features),
                 "symbol_size": lyr.symbol_size,
                 "line_width": lyr.line_width,
-                "geojson_url": f"/api/projects/{project_name}/milsymb/{lyr.title.replace(' ', '_').replace('/', '_')}.geojson",
+                "geojson_url": f"/api/projects/{project_name}/milsymb/{lyr.title.replace(' ', '_')}.geojson",
             }
             for lyr in layers
         ],
@@ -1648,16 +1669,11 @@ async def get_milsymb_layer_geojson(project_name: str, layer_name: str):
     """
     # Military Symbol Layer GeoJSON
 
-    Return a GeoJSON FeatureCollection for a specific military symbol
-    sub-layer (one per KadasMilxItem).
+    Return a GeoJSON FeatureCollection for a specific military symbol layer.
+    Each Feature contains `sidc`, `militaryName`, and geometry
+    ready for client-side rendering via milsymbol.
 
-    Each Feature carries milsymbol-compatible modifier properties
-    (``sidc``, ``uniqueDesignation``, ``speed``, ``staffComments``, …)
-    that can be forwarded directly to ``new ms.Symbol(sidc, options)``
-    or used as query parameters on the milsymbol-server.
-
-    Layer name uses underscores for spaces and slashes
-    (e.g. ``BLUE_FORCE___gren_team_DELTA``).
+    Layer name uses underscores for spaces (e.g. `BLUE_FORCE`).
     """
     from services.milsymb_service import get_milsymb_geojson
     geojson = get_milsymb_geojson(project_name, layer_name)

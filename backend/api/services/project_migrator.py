@@ -28,6 +28,7 @@ from sqlalchemy import text
 
 from services.qgz_parser import QGZParser, ProjectInfo
 from services.layer_extractor import LayerExtractor, MigrationResult
+from services.milsymb_migrator import MilSymbMigrator
 from database.connection import db
 
 logger = logging.getLogger(__name__)
@@ -102,9 +103,15 @@ class ProjectMigrator:
         project_name: str,
         target_crs: str = 'EPSG:2056',
         companion_files: Optional[List[Path]] = None,
-    ) -> Tuple[ProjectInfo, List[LayerRecord], bytes, str]:
+        basemap: Optional[str] = None,
+    ) -> Tuple[ProjectInfo, List[LayerRecord], bytes, str, List[Dict]]:
         """
         Parse a .qgz, create per-project schema, extract feature tables.
+
+        Aligned to the qgis-cloud-plugin flow:
+          - Only vector layers and KadasMilx plugin layers are migrated
+          - Raster, WMS, WMTS, and other geoservice layers are excluded
+          - Companion data files (uploaded or embedded in .qgz) are supported
 
         Args:
             qgz_path:        Path to the uploaded .qgz file.
@@ -113,11 +120,13 @@ class ProjectMigrator:
                              from the fiona source (no reprojection applied).
             companion_files: Optional data files (.gpkg, .geojson, …) that
                              are referenced by layers inside the .qgz.
+            basemap:         Optional backgroundLayer name from themes.json
+                             (e.g. "swisstopo_national", "osm").
 
         Returns:
             (ProjectInfo, list[LayerRecord], qgz_bytes, schema_name)
         """
-        logger.info(f"Migrating project: {project_name}")
+        logger.info(f"Migrating project: {project_name} (basemap={basemap})")
 
         # ── 1. Parse .qgz ────────────────────────────────────────────
         # Keep the parser open for the whole migration so we can rewrite
@@ -127,10 +136,18 @@ class ProjectMigrator:
             parser.extract()
             parser.parse_xml()
             project_info = parser.get_project_info()
+            # Store basemap choice in ProjectInfo
+            project_info.basemap = basemap
+
+            # Use filtered layer list: only vector + KadasMilx plugin
+            # (excludes raster, WMS/WMTS, and other geoservice layers)
+            filtered_layers = parser.parse_layers_filtered()
 
             logger.info(
                 f"Parsed '{project_info.title}': "
-                f"{len(project_info.layers)} layers, CRS={project_info.crs}"
+                f"{len(project_info.layers)} total layers, "
+                f"{len(filtered_layers)} after filter (vector + KadasMilx), "
+                f"CRS={project_info.crs}"
             )
 
             # ── 2. Build initial LayerRecord list (preserving qgs_layer_id) ──
@@ -144,7 +161,7 @@ class ProjectMigrator:
                     crs=li.crs or project_info.crs or 'EPSG:4326',
                     qgs_layer_id=li.id,
                 )
-                for li in project_info.layers
+                for li in filtered_layers
             ]
 
             # ── 3. Build companion_map from uploaded files + embedded data ─
@@ -283,6 +300,23 @@ class ProjectMigrator:
                         f"Failed to extract feature table for '{rec.layer_name}': {exc}"
                     )
 
+            # ── 6b. Extract KadasMilxLayer plugin layers to PostGIS ─────────
+            milsymb_results: List[Dict] = []
+            try:
+                milsymb_layers = parser.parse_milsymb_layers()
+                if milsymb_layers:
+                    milsymb_migrator = MilSymbMigrator(engine=self.engine)
+                    milsymb_results = milsymb_migrator.migrate_milsymb_layers(
+                        milsymb_layers=milsymb_layers,
+                        schema=proj_schema,
+                    )
+                    ok = sum(1 for r in milsymb_results if r['success'])
+                    logger.info(
+                        f"MilSymb migration: {ok}/{len(milsymb_results)} layers OK"
+                    )
+            except Exception as exc:
+                logger.warning(f"MilSymb migration failed (non-fatal): {exc}")
+
             # ── 7. Rewrite .qgs datasources to PostGIS (qgis-cloud approach) ─
             # For every successfully migrated vector layer, update the XML
             # datasource so QGIS Server can find the data in PostGIS.
@@ -316,6 +350,29 @@ class ProjectMigrator:
                         f"Could not rewrite datasource for layer '{rec.layer_name}': {exc}"
                     )
 
+            # ── 7b. Rewrite datasources for KadasMilxLayer (milsymb) ─────
+            for mr in milsymb_results:
+                if not mr['success'] or not mr.get('layer_id'):
+                    continue
+                try:
+                    pg_datasource = extractor.generate_postgis_datasource(
+                        table_name=mr['table_name'],
+                        geometry_type='Geometry',
+                        srid=mr['srid'],
+                        schema=proj_schema,
+                    )
+                    parser.update_layer_datasource(mr['layer_id'], pg_datasource)
+                    rewrite_count += 1
+                    logger.info(
+                        f"Rewrote datasource for milsymb layer '{mr['layer_title']}' "
+                        f"(id={mr['layer_id']}) → {proj_schema}.{mr['table_name']}"
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"Could not rewrite milsymb datasource for "
+                        f"'{mr['layer_title']}': {exc}"
+                    )
+
             # ── 8. Save modified .qgs and re-package as .qgz ─────────────
             # Even if no datasources were rewritten we still round-trip through
             # the ZIP to normalise the archive (safe no-op).
@@ -338,9 +395,10 @@ class ProjectMigrator:
         # ── 9. Return ─────────────────────────────────────────────────
         logger.info(
             f"Migration done for '{project_name}': schema={proj_schema}, "
-            f"{len(modified_qgz_bytes)} bytes, {len(layer_records)} layer records"
+            f"{len(modified_qgz_bytes)} bytes, {len(layer_records)} layer records, "
+            f"{len(milsymb_results)} milsymb layers"
         )
-        return project_info, layer_records, modified_qgz_bytes, proj_schema
+        return project_info, layer_records, modified_qgz_bytes, proj_schema, milsymb_results
 
     # ------------------------------------------------------------------
     # Schema / table creation helpers

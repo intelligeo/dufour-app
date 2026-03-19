@@ -59,12 +59,16 @@ CREATE TABLE IF NOT EXISTS projects (
     extent_maxy DOUBLE PRECISION,
     -- per-project schema where feature tables are stored (prj_<slug>)
     schema_name VARCHAR(63),
+    -- backgroundLayer name from themes.json (e.g. 'swisstopo_national', 'osm')
+    basemap VARCHAR(100),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Migrate existing rows: set schema_name if missing
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS schema_name VARCHAR(63);
+-- Migrate existing rows: set basemap if missing
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS basemap VARCHAR(100);
 
 -- ============================================================
 -- Project layers table (central catalog)
