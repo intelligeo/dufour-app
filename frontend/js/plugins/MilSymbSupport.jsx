@@ -31,53 +31,23 @@ function affiliationColor(affiliation) {
     return AFFILIATION_COLORS[(affiliation || '').toLowerCase()] || AFFILIATION_COLORS.unknown;
 }
 
-/**
- * milsymbol modifier option names that can be forwarded as query
- * parameters to the milsymbol-server.  These must match the
- * SymbolOptions interface from milsymbol (index.d.ts).
- */
-const MILSYMBOL_MODIFIER_KEYS = new Set([
-    'uniqueDesignation', 'additionalInformation', 'staffComments',
-    'higherFormation', 'hostile', 'iffSif', 'type', 'dtg',
-    'altitudeDepth', 'location', 'speed', 'direction',
-    'quantity', 'reinforcedReduced', 'evaluationRating',
-    'combatEffectiveness', 'signatureEquipment', 'country',
-    'platformType', 'equipmentTeardownTime', 'commonIdentifier',
-    'headquartersElement', 'installationComposition',
-    'specialHeadquarters', 'engagementBar', 'guardedUnit',
-    'specialDesignator', 'auxiliaryEquipmentIndicator', 'sigint'
-]);
-
 /* ── OL style factories ──────────────────────────────────────── */
 
 /**
  * Build an ol.style.Style for a milsymbol Point feature.
  * The icon is loaded lazily from /api/symbols/{SIDC}.svg
- *
- * All milsymbol-compatible modifiers found in the feature's properties
- * are forwarded as query parameters so the milsymbol-server renders
- * the full symbol with labels (uniqueDesignation, speed, etc.).
  */
 function pointStyleForFeature(feature, symbolBaseUrl, defaultSize) {
     const sidc = feature.get('sidc') || '';
     if (!sidc) return null;
 
     const size = defaultSize || 40;
-
-    // Build query string with size + all milsymbol modifiers
-    const params = new URLSearchParams();
-    params.set('size', String(size));
-
-    // Forward all milsymbol modifier properties from the GeoJSON feature
-    const featureProps = feature.getProperties();
-    for (const key of Object.keys(featureProps)) {
-        if (MILSYMBOL_MODIFIER_KEYS.has(key) && featureProps[key] != null && featureProps[key] !== '') {
-            params.set(key, String(featureProps[key]));
-        }
-    }
-
-    const url = `${symbolBaseUrl}/${sidc}.svg?${params.toString()}`;
     const uniqueDesignation = feature.get('uniqueDesignation') || '';
+
+    let url = `${symbolBaseUrl}/${sidc}.svg?size=${size}`;
+    if (uniqueDesignation) {
+        url += `&uniqueDesignation=${encodeURIComponent(uniqueDesignation)}`;
+    }
 
     return new ol.style.Style({
         image: new ol.style.Icon({
@@ -101,11 +71,9 @@ function pointStyleForFeature(feature, symbolBaseUrl, defaultSize) {
 
 /**
  * Build an ol.style.Style for LineString / Polygon tactical graphics.
- * Uses the per-feature ``affiliation`` property when available.
  */
-function linePolyStyle(feature, fallbackAffiliation, lineWidth) {
-    const aff = feature.get('affiliation') || fallbackAffiliation;
-    const color = affiliationColor(aff);
+function linePolyStyle(affiliation, lineWidth) {
+    const color = affiliationColor(affiliation);
     const fill = [...color.slice(0, 3), 0.15];
     return new ol.style.Style({
         stroke: new ol.style.Stroke({color: color, width: lineWidth || 3}),
@@ -204,7 +172,7 @@ class MilSymbSupport extends React.Component {
             if (geomType === 'Point' || geomType === 'MultiPoint') {
                 return pointStyleForFeature(feature, symbolBaseUrl, size);
             }
-            return linePolyStyle(feature, affiliation, lineWidth);
+            return linePolyStyle(affiliation, lineWidth);
         };
     };
 
