@@ -35,9 +35,20 @@ RUN node -e "const { createCanvas, loadImage } = require('canvas'); const ms = r
 COPY milsymbol-server/index.js .
 
 # Install Python dependencies for API
+# fiona/shapely/pyproj are installed via apt to guarantee GDAL compatibility
+# with the QGIS Server base image (same GDAL shared libs, no version mismatch).
 WORKDIR /app
-COPY backend/api/requirements.txt .
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+RUN apt-get update && apt-get install -y \
+    python3-fiona \
+    python3-shapely \
+    python3-pyproj \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify fiona+GDAL work correctly in this image
+RUN python3 -c "import fiona; print('fiona OK:', fiona.__version__); assert 'GPKG' in fiona.supported_drivers, 'GPKG driver missing!'"
+
+COPY backend/api/requirements-pip.txt .
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements-pip.txt
 
 # Copy application code
 COPY backend/api/ .

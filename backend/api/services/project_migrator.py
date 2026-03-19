@@ -216,6 +216,18 @@ class ProjectMigrator:
 
             EXTRACTABLE_SOURCE_TYPES = {'gpkg', 'shp', 'geojson', 'fgb'}
 
+            # ── Diagnostic summary before extraction loop ──────────────────
+            logger.info(
+                f"[EXTRACT] companion_map={list(companion_map.keys())!r} "
+                f"layer_records={len(layer_records)}"
+            )
+            for rec in layer_records:
+                logger.info(
+                    f"[EXTRACT] candidate: name={rec.layer_name!r} "
+                    f"type={rec.layer_type!r} src={rec.source_type!r} "
+                    f"ds={rec.datasource[:80]!r}"
+                )
+
             for rec in layer_records:
                 # Accept 'vector' or layers where source_type suggests vector data
                 is_vector = (
@@ -223,9 +235,10 @@ class ProjectMigrator:
                     or rec.source_type in EXTRACTABLE_SOURCE_TYPES
                 )
                 if not is_vector or not rec.datasource:
-                    logger.debug(
-                        f"Skipping layer '{rec.layer_name}': "
-                        f"layer_type={rec.layer_type!r}, source_type={rec.source_type!r}, "
+                    logger.info(
+                        f"[EXTRACT] SKIP '{rec.layer_name}': "
+                        f"is_vector={is_vector} "
+                        f"layer_type={rec.layer_type!r} source_type={rec.source_type!r} "
                         f"has_datasource={bool(rec.datasource)}"
                     )
                     continue
@@ -234,12 +247,17 @@ class ProjectMigrator:
                 companion_path = self._resolve_companion(rec.datasource, companion_map)
                 if companion_path is None:
                     ds_snippet = (rec.datasource or '')[:80]
-                    logger.info(
-                        f"No companion for layer '{rec.layer_name}' "
-                        f"(datasource={ds_snippet!r}, "
-                        f"available={list(companion_map.keys())}) — skipping table"
+                    logger.warning(
+                        f"[EXTRACT] NO COMPANION for layer '{rec.layer_name}': "
+                        f"datasource={ds_snippet!r}, "
+                        f"companion_map_keys={list(companion_map.keys())!r} — skipping"
                     )
                     continue
+
+                logger.info(
+                    f"[EXTRACT] PROCESSING '{rec.layer_name}': "
+                    f"companion={companion_path.name!r}"
+                )
 
                 # Build a minimal LayerInfo-compatible object for the extractor
                 class _LI:
@@ -294,11 +312,21 @@ class ProjectMigrator:
                     )
 
                 except Exception as exc:
+                    import traceback
                     rec.success = False
                     rec.error = str(exc)
                     logger.error(
-                        f"Failed to extract feature table for '{rec.layer_name}': {exc}"
+                        f"[EXTRACT] FAILED '{rec.layer_name}': {exc}\n"
+                        f"{traceback.format_exc()}"
                     )
+
+            # Log extraction summary
+            ok_count = sum(1 for r in layer_records if r.table_name)
+            fail_count = sum(1 for r in layer_records if not r.success and r.layer_type == 'vector')
+            logger.info(
+                f"[EXTRACT] Done: {ok_count} tables created, {fail_count} failures. "
+                f"Tables: {[r.table_name for r in layer_records if r.table_name]}"
+            )
 
             # ── 6b. Extract KadasMilxLayer plugin layers to PostGIS ─────────
             milsymb_results: List[Dict] = []

@@ -685,6 +685,11 @@ async def upload_and_migrate_project(
                 "debug": {
                     "companion_files": [df.filename for df in valid_data_files],
                     "companion_paths": [str(p) for p in companion_paths],
+                    "companion_files_received": len(valid_data_files),
+                    "layer_records_count": len(layer_records),
+                    "layers_extracted": sum(1 for r in layer_records if r.table_name),
+                    "layers_failed": [r.layer_name for r in layer_records if not r.success],
+                    "layer_errors": {r.layer_name: r.error for r in layer_records if r.error},
                 },
                 "layers": [
                     {
@@ -1033,7 +1038,28 @@ async def list_tables(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ==================== DIAGNOSTIC ENDPOINT (temporary) ====================
+# ==================== DIAGNOSTIC ENDPOINTS (temporary) ====================
+
+@app.get("/api/diag/fiona", tags=["debug"])
+async def diagnose_fiona():
+    """
+    Verify that fiona + GDAL are working correctly in this environment.
+    Returns fiona version, supported drivers, and a test open result.
+    No authentication required (diagnostic tool).
+    """
+    result: dict = {"ok": False, "fiona_version": None, "gdal_version": None,
+                    "drivers": [], "test_open": None, "error": None}
+    try:
+        import fiona
+        result["fiona_version"] = fiona.__version__
+        result["gdal_version"] = fiona.gdal_version()
+        result["drivers"] = list(fiona.supported_drivers.keys())[:30]  # first 30
+        result["GPKG_supported"] = "GPKG" in fiona.supported_drivers
+        result["ok"] = True
+    except Exception as e:
+        result["error"] = str(e)
+    return result
+
 
 @app.get("/api/projects/{project_name}/diagnose", tags=["debug"])
 async def diagnose_project(project_name: str):
