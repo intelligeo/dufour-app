@@ -666,46 +666,67 @@ class QWCService:
         ]
     
     
+    # Provider values that indicate an external geoservice (not a local vector layer).
+    # These are excluded from themeLayers — they belong in backgroundLayers instead.
+    _GEOSERVICE_PROVIDERS = frozenset({
+        'wms', 'wmts', 'wcs', 'wfs', 'xyz', 'arcgismapserver',
+        'arcgisfeatureserver', 'vectortile', 'openlayers',
+    })
+
     async def _extract_layers(self, root: ET.Element, project_name: str) -> List[Dict[str, Any]]:
         """
-        Extract layer tree from QGIS project
-        Builds QWC2-compatible layer structure
+        Extract layer tree from QGIS project.
+        Builds QWC2-compatible layer structure.
+
+        Only vector (ogr/postgres/spatialite) and plugin layers are included
+        as themeLayers.  Raster layers and external geoservice layers
+        (WMS, WMTS, XYZ, ArcGIS, …) are excluded because they are either
+        background tiles or remote services that should not appear as
+        interactive project layers in the QWC2 layer panel.
         """
         layers = []
-        
-        # Find all maplayers
+
         for layer_elem in root.findall('.//maplayer'):
+            layer_type = layer_elem.get('type', 'vector')   # vector | raster | plugin
+            provider = (self._get_text(layer_elem, 'provider') or '').lower()
+
+            # ── Skip raster layers entirely (WMTS/WMS basemaps, GeoTIFF, …) ──
+            if layer_type == 'raster':
+                layer_name = self._get_text(layer_elem, 'layername') or '?'
+                logger.debug(
+                    f"_extract_layers: skipping raster layer '{layer_name}' "
+                    f"(provider={provider!r})"
+                )
+                continue
+
+            # ── Skip vector layers backed by an external geoservice ──────────
+            if provider in self._GEOSERVICE_PROVIDERS:
+                layer_name = self._get_text(layer_elem, 'layername') or '?'
+                logger.debug(
+                    f"_extract_layers: skipping geoservice layer '{layer_name}' "
+                    f"(provider={provider!r})"
+                )
+                continue
+
             layer_id = layer_elem.get('id', '')
             layer_name = self._get_text(layer_elem, 'layername') or 'Unnamed'
-            layer_type = layer_elem.get('type', 'vector')
-            
-            # Check if layer is visible
-            visible = True
-            visibility_elem = layer_elem.find('.//renderer-v2')
-            
-            # Build layer configuration
+
             layer_config = {
                 "name": layer_name,
                 "id": layer_id,
                 "title": layer_name,
-                "visibility": visible,
+                "visibility": True,
                 "queryable": True,
                 "displayField": "",
                 "opacity": 255,
+                "type": "wms",   # QWC2: all project layers are served via QGIS WMS
                 "bbox": {
                     "crs": "EPSG:3857",
                     "bounds": [664577, 5753148, 1167741, 6075303]
                 }
             }
-            
-            # Add layer type-specific config
-            if layer_type == 'raster':
-                layer_config['type'] = 'wms'
-            else:
-                layer_config['type'] = 'wms'  # Vector layers served as WMS
-            
             layers.append(layer_config)
-        
+
         # Reverse to match QGIS layer order (bottom to top)
         return list(reversed(layers))
     

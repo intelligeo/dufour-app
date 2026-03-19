@@ -548,8 +548,18 @@ class QGZParser:
         # Raster formats
         elif '.tif' in ds_lower or '.tiff' in ds_lower:
             return 'geotiff'
-        
-        # Services
+
+        # Tile/geoservice formats (QGIS provider strings for raster basemaps)
+        # WMTS: QgsWmtsProvider uses "tileMatrixSet=" in the datasource string
+        elif 'tilematrixset=' in ds_lower or 'tilematrix' in ds_lower:
+            return 'wmts'
+        # XYZ tile layers: zmin/zmax or type=xyz
+        elif 'zmin=' in ds_lower or 'type=xyz' in ds_lower:
+            return 'xyz'
+        # Vector tile layers
+        elif 'type=mbtiles' in ds_lower or 'vectortile' in ds_lower:
+            return 'vectortile'
+        # Generic URL-based services (WMS, WFS, ArcGIS, etc.)
         elif 'url=' in ds_lower or 'http' in ds_lower:
             if layer_type == 'raster':
                 return 'wms'
