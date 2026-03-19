@@ -1052,9 +1052,27 @@ async def diagnose_fiona():
     try:
         import fiona
         result["fiona_version"] = fiona.__version__
-        result["gdal_version"] = fiona.gdal_version()
+        gdal_ver = fiona.gdal_version
+        result["gdal_version"] = str(gdal_ver) if gdal_ver is not None else None
         result["drivers"] = list(fiona.supported_drivers.keys())[:30]  # first 30
         result["GPKG_supported"] = "GPKG" in fiona.supported_drivers
+        # Minimal GPKG write+read test to confirm GDAL linkage is functional
+        try:
+            import tempfile, os
+            from fiona.crs import from_epsg
+            schema = {"geometry": "Point", "properties": {"id": "int"}}
+            with tempfile.NamedTemporaryFile(suffix=".gpkg", delete=False) as tmp:
+                tmp_path = tmp.name
+            with fiona.open(tmp_path, "w", driver="GPKG", schema=schema,
+                            crs=from_epsg(4326)) as dst:
+                dst.write({"geometry": {"type": "Point", "coordinates": [7.0, 47.0]},
+                           "properties": {"id": 1}})
+            with fiona.open(tmp_path, "r") as src:
+                feat_count = len(src)
+            os.unlink(tmp_path)
+            result["test_open"] = f"OK ({feat_count} feature)"
+        except Exception as te:
+            result["test_open"] = f"FAILED: {te}"
         result["ok"] = True
     except Exception as e:
         result["error"] = str(e)
