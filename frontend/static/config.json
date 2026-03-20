@@ -3,6 +3,7 @@
   "loadTranslationOverrides": false,
   "assetsPath": "assets",
   "themesUrl": "/themes.json",
+  "editServiceUrl": "/api/v1/data",
   "availableLocales": {
     "en-US": "English",
     "de-CH": "Deutsch",
@@ -126,6 +127,7 @@
               {"key": "Routing", "icon": "routing"},
               {"key": "TimeManager", "icon": "time"},
               {"key": "MapCompare", "icon": "sync"},
+              {"key": "Editing", "icon": "editing"},
               {"key": "MilSymbSizeSlider", "icon": "resize"}
             ]},
             {"key": "Print", "icon": "print"},
@@ -392,6 +394,7 @@
             {"key": "Bookmark", "icon": "bookmark"},
             {"key": "Measure", "icon": "measure"},
             {"key": "Redlining", "icon": "editing"},
+            {"key": "Editing", "icon": "editing"},
             {"key": "Print", "icon": "print"},
             {"key": "Help", "icon": "info"}
           ],

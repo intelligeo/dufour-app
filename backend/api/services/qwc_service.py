@@ -247,6 +247,16 @@ class QWCService:
                 except Exception as milsymb_err:
                     logger.debug(f"themes: MilSymb extraction skipped for {project_name}: {milsymb_err}")
 
+                # ── WFS-T editConfig ────────────────────────────────────────
+                try:
+                    edit_cfg = self._build_edit_config(project_name)
+                    if edit_cfg:
+                        item["editConfig"] = edit_cfg
+                        logger.info(f"themes: {project_name} editConfig has "
+                                    f"{len(edit_cfg)} editable layer(s)")
+                except Exception as ec_err:
+                    logger.debug(f"themes: editConfig skipped for {project_name}: {ec_err}")
+
                 items.append(item)
             except Exception as e:
                 logger.warning(f"Failed to build theme for project {project.get('name')}: {e}")
@@ -793,3 +803,112 @@ class QWCService:
                 )
 
         return layers
+
+    # ── WFS-T / QWC2 Editing ──────────────────────────────────────────────────
+
+    _GEOMTYPE_MAP = {
+        "point":           "Point",
+        "multipoint":      "MultiPoint",
+        "linestring":      "Line",
+        "multilinestring": "MultiLine",
+        "polygon":         "Polygon",
+        "multipolygon":    "MultiPolygon",
+        "geometrycollection": "Polygon",  # fallback
+    }
+
+    def _build_edit_config(self, project_name: str) -> Dict[str, Any]:
+        """
+        Build the QWC2 editConfig block for a project from public.project_layers.
+
+        Returns a dict keyed by layer_name (= WMS layer name in QWC2), each value:
+        {
+            "editDataset": "project_name/table_name",
+            "layerTitle": "...",
+            "geomType": "Point|Line|Polygon|...",
+            "pkey": "fid",
+            "fields": [{"id": col, "name": col, "type": "text"}, ...],
+            "permissions": {"creatable": true, "updatable": true, "deletable": true}
+        }
+
+        Only layers that have a non-null table_name (i.e. migrated to PostGIS) are included.
+        """
+        try:
+            from database.connection import db as _db
+            from sqlalchemy import text as _text
+        except Exception:
+            return {}
+
+        edit_config: Dict[str, Any] = {}
+
+        try:
+            with _db.get_engine().connect() as conn:
+                # Fetch all eligible layers for this project
+                rows = conn.execute(_text("""
+                    SELECT pl.layer_name, pl.table_name, pl.geometry_type, pl.crs,
+                           p.schema_name
+                    FROM public.project_layers pl
+                    JOIN public.projects p ON p.id = pl.project_id
+                    WHERE p.name = :pname
+                      AND pl.table_name IS NOT NULL
+                      AND pl.table_name <> ''
+                """), {"pname": project_name}).fetchall()
+        except Exception as exc:
+            logger.warning(f"editConfig: DB query failed for {project_name}: {exc}")
+            return {}
+
+        for row in rows:
+            layer_name, table_name, geom_type, crs, schema_name = row
+
+            # Map geometry type to QWC2 format
+            raw_gt = (geom_type or "").lower().replace(" ", "")
+            qwc_geom = self._GEOMTYPE_MAP.get(raw_gt, "Polygon")
+
+            # Introspect columns from information_schema
+            fields: List[Dict] = []
+            if schema_name:
+                try:
+                    with _db.get_engine().connect() as conn2:
+                        col_rows = conn2.execute(_text("""
+                            SELECT column_name, data_type
+                            FROM information_schema.columns
+                            WHERE table_schema = :s AND table_name = :t
+                              AND column_name NOT IN ('geom', 'geometry', 'shape',
+                                                      'wkb_geometry', 'the_geom')
+                            ORDER BY ordinal_position
+                        """), {"s": schema_name, "t": table_name}).fetchall()
+                    for col_name, data_type in col_rows:
+                        if col_name == "fid":
+                            continue  # pkey — not editable
+                        # Map PostgreSQL type → QWC2 field type
+                        if data_type in ("integer", "bigint", "smallint", "numeric", "real",
+                                         "double precision", "decimal"):
+                            field_type = "number"
+                        elif data_type in ("boolean",):
+                            field_type = "boolean"
+                        elif data_type in ("date",):
+                            field_type = "date"
+                        elif data_type in ("timestamp without time zone",
+                                           "timestamp with time zone",
+                                           "time without time zone"):
+                            field_type = "datetime"
+                        else:
+                            field_type = "text"
+                        fields.append({"id": col_name, "name": col_name, "type": field_type})
+                except Exception as col_exc:
+                    logger.debug(f"editConfig: column introspection failed for "
+                                 f"{schema_name}.{table_name}: {col_exc}")
+
+            edit_config[layer_name] = {
+                "editDataset": f"{project_name}/{table_name}",
+                "layerTitle": layer_name,
+                "geomType": qwc_geom,
+                "pkey": "fid",
+                "fields": fields,
+                "permissions": {
+                    "creatable": True,
+                    "updatable": True,
+                    "deletable": True,
+                }
+            }
+
+        return edit_config

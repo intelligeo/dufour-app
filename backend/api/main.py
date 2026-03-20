@@ -145,6 +145,10 @@ JWT bearer tokens via `/api/auth/login`. Admin endpoints require the `admin` rol
         {
             "name": "debug",
             "description": "Temporary diagnostic endpoints (development only)"
+        },
+        {
+            "name": "editing",
+            "description": "QWC2 Editing API — WFS-T via REST → PostGIS. Dataset path: {project}/{lyr_table}."
         }
     ],
     swagger_ui_parameters={
@@ -173,6 +177,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+from routers.editing import router as editing_router
+app.include_router(editing_router)
 
 # Initialize services
 project_service = ProjectService()
