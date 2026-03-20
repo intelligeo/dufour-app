@@ -168,14 +168,17 @@
             "FI_LINE_TOLERANCE": 8,
             "FI_POLYGON_TOLERANCE": 4,
             "feature_count": 20,
-            "region_feature_count": 100
+            "region_feature_count": 100,
+            "INFO_FORMAT": "application/json",
+            "FEATURE_COUNT": 20
           },
           "enableExport": true,
-          "longAttributesDisplay": "ellipsis",
-          "displayResultTree": false,
+          "longAttributesDisplay": "tooltip",
+          "displayResultTree": true,
           "featureInfoReturnsLayerName": true,
-          "initialWidth": 480,
-          "initialHeight": 550
+          "featureInfoFormat": "application/json",
+          "initialWidth": 500,
+          "initialHeight": 600
         }
       },
       {

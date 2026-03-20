@@ -8,3 +8,148 @@
 .appmenu-label:hover {
     color: #888888 !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Feature Info / Identify window
+   Targets QWC2 IdentifyViewer component CSS classes.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* Dialog container */
+.identify-viewer,
+.identifytool-dialog {
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--container-background-color, #1e1e2e);
+    color: var(--body-text-color, #cdd6f4);
+}
+
+/* List of results (one entry per layer) */
+.identify-result-container,
+.identify-result-list {
+    padding: 4px 0;
+    overflow-y: auto;
+}
+
+/* Individual layer result block */
+.identify-result-box,
+.identify-result-entry {
+    border: 1px solid var(--border-color, #313244);
+    border-radius: 6px;
+    margin: 4px 8px;
+    overflow: hidden;
+    background: var(--item-active-background-color, #181825);
+}
+
+/* Layer name header bar */
+.identify-result-name,
+.identify-result-header,
+.identify-layer-title,
+.identify-result-title {
+    background: var(--titlebar-background-color, #1e1e2e) !important;
+    color: var(--titlebar-text-color, #89b4fa) !important;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    padding: 5px 10px !important;
+    border-bottom: 1px solid var(--border-color, #313244);
+    text-transform: uppercase;
+}
+
+/* Attribute table */
+.identify-attributes-table,
+.identify-attribute-table,
+table.attribute-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.identify-attributes-table tr,
+.identify-attribute-table tr,
+table.attribute-table tr {
+    border-bottom: 1px solid var(--border-color, #2a2a3e);
+}
+
+.identify-attributes-table tr:last-child,
+.identify-attribute-table tr:last-child,
+table.attribute-table tr:last-child {
+    border-bottom: none;
+}
+
+.identify-attributes-table tr:hover,
+.identify-attribute-table tr:hover,
+table.attribute-table tr:hover {
+    background: rgba(137, 180, 250, 0.07);
+}
+
+/* Attribute name cell */
+.identify-attribute-name,
+.attribute-name,
+td.attribute-name {
+    color: var(--secondarytext-color, #a6adc8);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    padding: 5px 10px 5px 12px;
+    vertical-align: top;
+    white-space: nowrap;
+    min-width: 110px;
+    max-width: 180px;
+    text-transform: none;
+}
+
+/* Attribute value cell */
+.identify-attribute-value,
+.attribute-value,
+td.attribute-value {
+    color: var(--body-text-color, #cdd6f4);
+    font-size: 12px;
+    padding: 5px 12px 5px 6px;
+    vertical-align: top;
+    word-break: break-word;
+}
+
+/* Feature pager (1/N) */
+.identify-result-pager,
+.identify-feature-count {
+    font-size: 11px;
+    color: var(--secondarytext-color, #a6adc8);
+    padding: 2px 10px;
+}
+
+/* "More results" indicator */
+.identify-more-results {
+    font-size: 11px;
+    color: var(--secondarytext-color, #a6adc8);
+    text-align: center;
+    padding: 4px;
+    border-top: 1px solid var(--border-color, #313244);
+}
+
+/* Hyperlinks inside attribute values (rendered by attributeTransform) */
+a.fi-attr-link {
+    color: var(--link-color, #89b4fa);
+    text-decoration: none;
+    word-break: break-all;
+}
+a.fi-attr-link:hover {
+    text-decoration: underline;
+    color: var(--link-hover-color, #b4befe);
+}
+
+/* Export button bar */
+.identify-export-bar {
+    border-top: 1px solid var(--border-color, #313244);
+    padding: 6px 8px;
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+/* No-result placeholder */
+.identify-no-result,
+.identify-empty-result {
+    color: var(--secondarytext-color, #a6adc8);
+    text-align: center;
+    padding: 20px;
+    font-size: 13px;
+}

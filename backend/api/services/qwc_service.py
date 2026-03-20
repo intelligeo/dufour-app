@@ -217,7 +217,9 @@ class QWCService:
                         {"name": "osm"}
                     ],
                     "thumbnail": f"../api/projects/{project_name}/thumbnail",
-                    "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
+                    "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"],
+                    "infoFormats": ["application/json", "application/vnd.ogc.gml", "text/plain"],
+                    "queryable": True,
                 }
                 # Only include sublayers if we have actual data — QWC2 uses sublayers:[] as
                 # "no sublayers" which hides the layer tree entirely.
@@ -285,7 +287,9 @@ class QWCService:
                         {"name": "opentopomap"},
                         {"name": "osm"}
                     ],
-                    "thumbnail": f"../api/projects/{theme_name}/thumbnail"
+                    "thumbnail": f"../api/projects/{theme_name}/thumbnail",
+                    "infoFormats": ["application/json", "application/vnd.ogc.gml", "text/plain"],
+                    "queryable": True,
                 }
                 items.append(item)
             except Exception:
@@ -316,7 +320,9 @@ class QWCService:
                     {"name": "osm"}
                 ],
                 "thumbnail": "img/mapthumbs/default.jpg",
-                "additionalMouseCrs": ["EPSG:2056", "EPSG:4326", "EPSG:21781", "MGRS"]
+                "additionalMouseCrs": ["EPSG:2056", "EPSG:4326", "EPSG:21781", "MGRS"],
+                "infoFormats": ["application/json", "application/vnd.ogc.gml", "text/plain"],
+                "queryable": True,
             })
 
         default_theme = items[0]["id"] if items else "dufour_default"
@@ -558,20 +564,20 @@ class QWCService:
             sublayers = []
             for row in rows:
                 layer_name, layer_type, geom_type, table_name, feat_count, crs = row
-                # A layer is queryable/identifiable only when it has been
-                # migrated to PostGIS (table_name is set).
-                has_table = bool(table_name)
+                # All layers served by QGIS Server WMS are identifiable via
+                # GetFeatureInfo — QGIS reprojects and queries the original source
+                # (GPKG, PostGIS, SHP …) transparently.  Mark all as queryable.
                 sublayers.append({
                     "name": layer_name,
                     "title": layer_name,
                     "visibility": True,
-                    "queryable": has_table,
-                    "displayField": "fid" if has_table else "",
+                    "queryable": True,
+                    "displayField": "fid",
                     "type": "wms",
                     "geometryType": geom_type or "",
                     "featureCount": feat_count or 0,
                     "crs": crs or "",
-                    # table hint for the identify tool
+                    # table hint for the identify tool (may be empty for non-migrated layers)
                     "postgisTable": table_name or "",
                     "sublayers": [],
                 })
