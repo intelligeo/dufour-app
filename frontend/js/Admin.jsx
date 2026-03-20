@@ -519,7 +519,7 @@ function UserModal({user: initial, onSave, onClose}) {
 // ---------------------------------------------------------------------------
 function UploadProjectModal({onSave, onClose}) {
     const {t} = useI18n();
-    const [form, setForm] = useState({name: '', title: '', description: '', is_public: false});
+    const [form, setForm] = useState({name: '', title: '', description: '', is_public: false, import_geoservice_layers: false});
     const [qgzFile, setQgzFile]       = useState(null);
     const [dataFiles, setDataFiles]   = useState([]);  // FileList → array
     const [err, setErr]               = useState('');
@@ -543,6 +543,7 @@ function UploadProjectModal({onSave, onClose}) {
             if (form.title)       fd.append('title', form.title);
             if (form.description) fd.append('description', form.description);
             fd.append('is_public', form.is_public ? 'true' : 'false');
+            fd.append('import_geoservice_layers', form.import_geoservice_layers ? 'true' : 'false');
             fd.append('file', qgzFile);
             for (const f of dataFiles) {
                 fd.append('data_files', f);
@@ -575,6 +576,22 @@ function UploadProjectModal({onSave, onClose}) {
                 <label htmlFor="pub" style={{...S.label, marginBottom: 0, cursor: 'pointer'}}>
                     {t('upload.public')}
                 </label>
+            </div>
+
+            <div style={{display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 16,
+                         padding: '10px 12px', background: '#1e2736', borderRadius: 6,
+                         border: '1px solid #374151'}}>
+                <input type="checkbox" id="geoservice" style={{marginTop: 2}}
+                       checked={form.import_geoservice_layers}
+                       onChange={e => setForm(f => ({...f, import_geoservice_layers: e.target.checked}))} />
+                <div>
+                    <label htmlFor="geoservice" style={{...S.label, marginBottom: 2, cursor: 'pointer'}}>
+                        {t('upload.geoservice')}
+                    </label>
+                    <div style={{fontSize: 11, color: '#6b7280'}}>
+                        {t('upload.geoservice_hint')}
+                    </div>
+                </div>
             </div>
 
             <label style={S.label}>{t('upload.qgz')}</label>
