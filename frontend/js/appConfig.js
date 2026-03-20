@@ -72,9 +72,9 @@ import BufferSupport from 'qwc2/plugins/redlining/RedliningBufferSupport';
 
 import defaultLocaleData from '../static/translations/en-US.json';
 import {customAttributeCalculator, attributeTransform, customExporters} from './IdentifyExtensions';
+import CustomEditingInterface from './CustomEditingInterface';
 import MilSymbSizeSlider from './plugins/MilSymbSizeSlider';
 import MilSymbSupport from './plugins/MilSymbSupport';
-
 import CoordinatesUtils from 'qwc2/utils/CoordinatesUtils';
 import LocaleUtils from 'qwc2/utils/LocaleUtils';
 
@@ -135,15 +135,15 @@ export default {
                 MilSymbSupport: MilSymbSupport
             }),
             APIPlugin: APIPlugin,
-            AttributeTablePlugin: AttributeTablePlugin(/* CustomEditingInterface */),
+            AttributeTablePlugin: AttributeTablePlugin(CustomEditingInterface),
             AuthenticationPlugin: AuthenticationPlugin,
             BackgroundSwitcherPlugin: BackgroundSwitcherPlugin,
             BookmarkPlugin: BookmarkPlugin,
             BottomBarPlugin: BottomBarPlugin,
             CookiePopupPlugin: CookiePopupPlugin,
             CyclomediaPlugin: CyclomediaPlugin,
-            EditingPlugin: EditingPlugin(/* CustomEditingInterface */),
-            FeatureFormPlugin: FeatureFormPlugin(/* CustomEditingInterface */),
+            EditingPlugin: EditingPlugin(CustomEditingInterface),
+            FeatureFormPlugin: FeatureFormPlugin(CustomEditingInterface),
             GeometryDigitizerPlugin: GeometryDigitizerPlugin,
             HeightProfilePlugin: HeightProfilePlugin,
             HelpPlugin: HelpPlugin(),
@@ -161,7 +161,7 @@ export default {
             MapTipPlugin: MapTipPlugin,
             MeasurePlugin: MeasurePlugin,
             NewsPopupPlugin: NewsPopupPlugin,
-            ObjectListPlugin: ObjectListPlugin(/* CustomEditingInterface */),
+            ObjectListPlugin: ObjectListPlugin(CustomEditingInterface),
             ObliqueViewPlugin: ObliqueViewPlugin,
             OverviewMapPlugin: OverviewMapPlugin,
             PanoramaxPlugin: PanoramaxPlugin,

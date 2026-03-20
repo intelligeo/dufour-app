@@ -165,6 +165,8 @@ class QWCService:
                 # /tmp/dufour_qgis_projects/ — ensure it exists before we ask
                 # QGIS Server for capabilities.
                 sublayers = []
+                print_layouts = []
+                _qgis_local_url = None
                 try:
                     from services.qgis_storage_service import storage_service as _ss
                     import tempfile as _tmp
@@ -177,10 +179,10 @@ class QWCService:
                             _temp_path.write_bytes(qgz_bytes)
                             logger.info(f"themes: exported {project_name}.qgz to {_temp_path}")
                     if _temp_path.exists():
-                        qgis_wms_url = (
+                        _qgis_local_url = (
                             f"http://localhost/qgis?MAP={_temp_path}"
                         )
-                        sublayers = await self._fetch_sublayers_from_wms(qgis_wms_url)
+                        sublayers = await self._fetch_sublayers_from_wms(_qgis_local_url)
                 except Exception as exc:
                     logger.warning(f"themes: WMS sublayer fetch failed for {project_name}: {exc}")
 
@@ -189,12 +191,21 @@ class QWCService:
                 if not sublayers:
                     sublayers = self._get_project_sublayers(project_name)
 
+                # ── Print layouts from QGIS Server GetProjectSettings ─────────
+                if _qgis_local_url:
+                    try:
+                        print_layouts = await self._fetch_print_layouts_from_wms(_qgis_local_url)
+                    except Exception as _plex:
+                        logger.debug(f"themes: print layouts fetch skipped for {project_name}: {_plex}")
+
                 item = {
                     "id": project_name,
                     "name": project_name,
                     "title": project.get('title') or project_name,
                     "description": project.get('description') or '',
                     "url": wms_url,
+                    "printUrl": wms_url,
+                    "version": "1.3.0",
                     "attribution": "Dufour.app",
                     "mapCrs": map_crs,
                     "bbox": {
@@ -225,6 +236,10 @@ class QWCService:
                 # "no sublayers" which hides the layer tree entirely.
                 if sublayers:
                     item["sublayers"] = sublayers
+
+                # Print layouts — populated from GetProjectSettings when QGIS Server is warm
+                if print_layouts:
+                    item["print"] = print_layouts
 
                 # ── MilSymb overlay layers (KadasMilxLayer) ─────────────────
                 try:
@@ -543,6 +558,95 @@ class QWCService:
 
         except Exception as exc:
             logger.warning(f"_fetch_sublayers_from_wms({wms_url!r}) failed: {exc}")
+            return []
+
+    async def _fetch_print_layouts_from_wms(self, wms_url: str) -> List[Dict[str, Any]]:
+        """
+        Call GetProjectSettings on the QGIS Server WMS URL and parse ComposerTemplates.
+        Returns a list of layout dicts in QWC2 PrintPlugin theme.print format:
+          [{"name": "A4 portrait", "map": {"name": "map0", "width": 271, "height": 177},
+            "labels": ["title", "notes"]}, ...]
+        Returns [] on any error so theme generation never fails.
+        """
+        try:
+            import httpx
+            import xml.etree.ElementTree as _ET
+
+            sep = "&" if "?" in wms_url else "?"
+            gps_url = wms_url + f"{sep}SERVICE=WMS&VERSION=1.3.0&REQUEST=GetProjectSettings"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(gps_url)
+                resp.raise_for_status()
+
+            root = _ET.fromstring(resp.text)
+
+            # ComposerTemplates may use or omit the WMS namespace
+            WMS_NS = "http://www.opengis.net/wms"
+            templates_el = (
+                root.find(f".//{{{WMS_NS}}}ComposerTemplates") or
+                root.find(".//ComposerTemplates")
+            )
+            if templates_el is None:
+                logger.info(f"_fetch_print_layouts: no ComposerTemplates for {wms_url}")
+                return []
+
+            layouts: List[Dict[str, Any]] = []
+            for template_el in templates_el:
+                local_tag = template_el.tag.split('}')[-1] if '}' in template_el.tag else template_el.tag
+                if local_tag != "ComposerTemplate":
+                    continue
+
+                name = template_el.get("name", "")
+                if not name:
+                    continue
+
+                map_el = None
+                labels: List[str] = []
+                atlas_layer = ""
+                atlas_pk = ""
+
+                for child in template_el:
+                    child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                    if child_tag == "ComposerMap" and map_el is None:
+                        map_el = child
+                    elif child_tag == "ComposerLabel":
+                        lbl = child.get("name") or child.get("id") or ""
+                        if lbl:
+                            labels.append(lbl)
+                    elif child_tag == "Atlas":
+                        atlas_layer = child.get("atlasCoverageLayer", "")
+                        atlas_pk = child.get("atlasPageNameExpression", "fid")
+
+                # Layouts without a ComposerMap cannot produce a map print
+                if map_el is None:
+                    continue
+
+                map_name = map_el.get("name", "map0")
+                try:
+                    map_w = float(map_el.get("width", 0))
+                    map_h = float(map_el.get("height", 0))
+                except (TypeError, ValueError):
+                    map_w, map_h = 0.0, 0.0
+
+                layout: Dict[str, Any] = {
+                    "name": name,
+                    "map": {"name": map_name, "width": map_w, "height": map_h},
+                    "labels": labels,
+                }
+                if atlas_layer:
+                    layout["atlasCoverageLayer"] = atlas_layer
+                    layout["atlas_pk"] = atlas_pk
+
+                layouts.append(layout)
+
+            logger.info(
+                f"_fetch_print_layouts: found {len(layouts)} layout(s) for {wms_url}"
+            )
+            return layouts
+
+        except Exception as exc:
+            logger.warning(f"_fetch_print_layouts_from_wms({wms_url!r}) failed: {exc}")
             return []
 
     def _get_project_sublayers(self, project_name: str) -> List[Dict[str, Any]]:

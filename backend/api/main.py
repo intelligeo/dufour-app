@@ -2124,7 +2124,7 @@ async def wms_proxy(project_name: str, request: Request):
             # proxy URL /api/projects/{project_name}/wms so QWC2 uses the correct endpoint.
             response_content = response.content
             req_type = query_params.get('REQUEST', '').upper()
-            if req_type == 'GETCAPABILITIES' and 'xml' in content_type.lower():
+            if req_type in ('GETCAPABILITIES', 'GETPROJECTSETTINGS') and 'xml' in content_type.lower():
                 try:
                     caps_text = response.text
                     # Replace all occurrences of the internal QGIS Server URL
