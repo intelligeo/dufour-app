@@ -478,11 +478,12 @@ class ProjectMigrator:
         logger.info(f"Schema ensured: {schema}")
 
     def _create_schema_tables(self, schema: str) -> None:
-        """Create the project metadata table inside the per-project schema.
+        """Create per-project metadata tables inside the schema (idempotent).
 
-        Note: project_layers is NOT created here.  Layer metadata is stored
-        exclusively in public.project_layers (the central catalog written by
-        main.py).  The per-schema tables contain only feature data (lyr_*).
+        Creates:
+          - {schema}.project        — project-level metadata
+          - {schema}.project_layers — per-layer catalog (populated by
+                                      _populate_schema_layers after extraction)
         """
         ddl = f"""
             CREATE TABLE IF NOT EXISTS "{schema}".project (
@@ -497,6 +498,19 @@ class ProjectMigrator:
                 extent_maxy DOUBLE PRECISION,
                 created_at  TIMESTAMP DEFAULT NOW(),
                 updated_at  TIMESTAMP DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS "{schema}".project_layers (
+                id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                layer_name     VARCHAR(255),
+                layer_type     VARCHAR(50),
+                geometry_type  VARCHAR(50),
+                source_type    VARCHAR(50),
+                crs            VARCHAR(50),
+                table_name     VARCHAR(255),
+                datasource     TEXT,
+                features_count INTEGER DEFAULT 0,
+                success        BOOLEAN DEFAULT TRUE,
+                error          TEXT
             );
         """
         with self.engine.connect() as conn:

@@ -370,7 +370,6 @@ async def get_project(project_name: str):
 
 @app.post("/api/projects", tags=["projects"])
 async def upload_and_migrate_project(
-    request: Request,
     name: str = Form(..., description="Project identifier (lowercase, alphanumeric, underscore)", example="my_project"),
     title: Optional[str] = Form(None, description="Display title", example="My Awesome Project"),
     description: Optional[str] = Form(None, description="Project description"),
@@ -378,6 +377,7 @@ async def upload_and_migrate_project(
     basemap: Optional[str] = Form(None, description="Background layer name from themes.json (e.g. 'swisstopo_national', 'osm')", example="swisstopo_national"),
     import_geoservice_layers: bool = Form(False, description="Se True, include anche i layer da geoservizi esterni (WMS/WMTS/XYZ/raster) come voci nel catalogo (senza estrazione PostGIS)"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
+    data_files: List[UploadFile] = File(default=[], description="Companion data files (.gpkg, .geojson, .shp, …)"),
     current_user: dict = Depends(get_current_user),
 ):
     """
@@ -458,21 +458,16 @@ async def upload_and_migrate_project(
     }
 
     try:
-        # ── Resolve companion files from raw multipart form ────────────
-        # We do NOT declare data_files as a FastAPI parameter because
-        # Pydantic v2 rejects a single UploadFile when the type hint is
-        # List[UploadFile] ("Input should be a valid list").  Instead we
-        # read them straight from Starlette's parsed form.
-        form = await request.form()
-        valid_data_files: List[UploadFile] = []
-        for val in form.getlist("data_files"):
-            if isinstance(val, UploadFile) and val.filename:
-                valid_data_files.append(val)
+        # ── Companion files come from the declared data_files parameter ──
+        # FastAPI natively handles List[UploadFile] — no manual form parsing needed.
+        valid_data_files: List[UploadFile] = [
+            f for f in (data_files or []) if f and f.filename
+        ]
 
         logger.info(
             f"Upload request: name={name}, "
-            f"form_keys={list(form.keys())}, "
-            f"companion_files={[df.filename for df in valid_data_files]}"
+            f"companion_files={[df.filename for df in valid_data_files]} "
+            f"({len(valid_data_files)} file(s))"
         )
 
         # Validate file extension
