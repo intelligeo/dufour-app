@@ -65,6 +65,7 @@ import {ZoomInPlugin, ZoomOutPlugin} from 'qwc2/plugins/ZoomButtons';
 import EditingSupport from 'qwc2/plugins/map/EditingSupport';
 import LocateSupport from 'qwc2/plugins/map/LocateSupport';
 import MeasurementSupport from 'qwc2/plugins/map/MeasurementSupport';
+import RedliningPickSupport from 'qwc2/plugins/map/RedliningPickSupport';
 import RedliningSupport from 'qwc2/plugins/map/RedliningSupport';
 import SnappingSupport from 'qwc2/plugins/map/SnappingSupport';
 import BufferSupport from 'qwc2/plugins/redlining/RedliningBufferSupport';
@@ -128,6 +129,7 @@ export default {
                 EditingSupport: EditingSupport,
                 MeasurementSupport: MeasurementSupport,
                 LocateSupport: LocateSupport,
+                RedliningPickSupport: RedliningPickSupport,
                 RedliningSupport: RedliningSupport,
                 SnappingSupport: SnappingSupport,
                 MilSymbSupport: MilSymbSupport

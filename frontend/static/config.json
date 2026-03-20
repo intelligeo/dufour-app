@@ -121,6 +121,11 @@
               {"key": "GeometryDigitizer", "icon": "digitizing"},
               {"key": "AttributeTable", "icon": "editing"},
               {"key": "FeatureSearch", "icon": "search"},
+              {"key": "MapFilter", "icon": "filter"},
+              {"key": "MapLegend", "icon": "legend"},
+              {"key": "Routing", "icon": "routing"},
+              {"key": "TimeManager", "icon": "time"},
+              {"key": "MapCompare", "icon": "sync"},
               {"key": "MilSymbSizeSlider", "icon": "resize"}
             ]},
             {"key": "Print", "icon": "print"},
@@ -277,7 +282,7 @@
       {
         "name": "HeightProfile",
         "cfg": {
-          "heigthProfilePrecision": 0,
+          "heightProfilePrecision": 0,
           "height": 200
         }
       },
@@ -411,8 +416,17 @@
             "FI_POINT_TOLERANCE": 32,
             "FI_LINE_TOLERANCE": 16,
             "FI_POLYGON_TOLERANCE": 8,
-            "feature_count": 10
-          }
+            "feature_count": 10,
+            "INFO_FORMAT": "application/json",
+            "FEATURE_COUNT": 10
+          },
+          "featureInfoReturnsLayerName": true,
+          "featureInfoFormat": "application/json",
+          "longAttributesDisplay": "tooltip",
+          "displayResultTree": true,
+          "enableExport": true,
+          "initialWidth": 360,
+          "initialHeight": 480
         }
       },
       {
