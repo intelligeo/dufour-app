@@ -63,13 +63,24 @@
         "attribution": "© swisstopo"
       },
       {
+        "name": "swisstopo_national_grey",
+        "title": "swisstopo Maps grey",
+        "type": "xyz",
+        "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg",
+        "projection": "EPSG:3857",
+        "minZoom": 0,
+        "maxZoom": 17,
+        "thumbnail": "img/mapthumbs/swisstopo_grey.jpg",
+        "attribution": "© swisstopo"
+      },
+      {
         "name": "arcgis_world_imagery",
         "title": "ArcGIS World Imagery",
         "type": "xyz",
         "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         "projection": "EPSG:3857",
         "thumbnail": "img/mapthumbs/arcgis_imagery.jpg",
-        "attribution": "Esri, DigitalGlobe, GeoEye, Earthstar Geographics"
+        "attribution": "© Esri, DigitalGlobe, GeoEye, Earthstar Geographics"
       },
       {
         "name": "cartodb_dark_matter",

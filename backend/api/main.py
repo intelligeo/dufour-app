@@ -376,6 +376,7 @@ async def upload_and_migrate_project(
     description: Optional[str] = Form(None, description="Project description"),
     is_public: bool = Form(False, description="Public visibility"),
     basemap: Optional[str] = Form(None, description="Background layer name from themes.json (e.g. 'swisstopo_national', 'osm')", example="swisstopo_national"),
+    import_geoservice_layers: bool = Form(False, description="Se True, include anche i layer da geoservizi esterni (WMS/WMTS/XYZ/raster) come voci nel catalogo (senza estrazione PostGIS)"),
     file: UploadFile = File(..., description="QGIS project file (.qgz)"),
     current_user: dict = Depends(get_current_user),
 ):
@@ -526,6 +527,7 @@ async def upload_and_migrate_project(
                 project_name=name,
                 companion_files=companion_paths if companion_paths else None,
                 basemap=basemap,
+                import_geoservice_layers=import_geoservice_layers,
             )
             
             # Store project in database (public.projects central catalog)
@@ -848,6 +850,15 @@ async def delete_project(project_name: str):
 
         project_id = str(row[0])
         schema_name = row[1]  # e.g. 'prj_caresg'
+
+        # Fallback: if schema_name was never stored (old upload), derive it
+        if not schema_name:
+            from services.project_migrator import _schema_name as _derive_schema
+            schema_name = _derive_schema(project_name)
+            logger.warning(
+                f"delete_project: schema_name was NULL for '{project_name}', "
+                f"using derived name '{schema_name}'"
+            )
 
         # ── 2. Drop per-project schema (CASCADE removes all lyr_* tables) ─
         if schema_name:

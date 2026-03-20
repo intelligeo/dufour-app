@@ -101,9 +101,10 @@ class ProjectMigrator:
         self,
         qgz_path: Path,
         project_name: str,
-        target_crs: str = 'EPSG:2056',
+        target_crs: str = 'EPSG:4326',
         companion_files: Optional[List[Path]] = None,
         basemap: Optional[str] = None,
+        import_geoservice_layers: bool = False,
     ) -> Tuple[ProjectInfo, List[LayerRecord], bytes, str, List[Dict]]:
         """
         Parse a .qgz, create per-project schema, extract feature tables.
@@ -122,26 +123,54 @@ class ProjectMigrator:
                              are referenced by layers inside the .qgz.
             basemap:         Optional backgroundLayer name from themes.json
                              (e.g. "swisstopo_national", "osm").
+            import_geoservice_layers: If True, WMS/WMTS/XYZ/raster layers are
+                             included as LayerRecord entries (with no table_name)
+                             so they appear in the project catalog. Default False.
 
         Returns:
-            (ProjectInfo, list[LayerRecord], qgz_bytes, schema_name)
+            (ProjectInfo, list[LayerRecord], qgz_bytes, schema_name, milsymb_results)
         """
-        logger.info(f"Migrating project: {project_name} (basemap={basemap})")
+        logger.info(
+            f"Migrating project: {project_name} "
+            f"(basemap={basemap}, import_geoservice={import_geoservice_layers})"
+        )
 
         # ── 1. Parse .qgz ────────────────────────────────────────────
-        # Keep the parser open for the whole migration so we can rewrite
-        # datasources and repackage the .qgz at the end (qgis-cloud approach).
         parser = QGZParser(qgz_path)
         try:
             parser.extract()
             parser.parse_xml()
             project_info = parser.get_project_info()
-            # Store basemap choice in ProjectInfo
             project_info.basemap = basemap
 
             # Use filtered layer list: only vector + KadasMilx plugin
             # (excludes raster, WMS/WMTS, and other geoservice layers)
             filtered_layers = parser.parse_layers_filtered()
+
+            # If user opted-in, also include geoservice/raster layers as
+            # catalog entries (they get no PostGIS table, just metadata)
+            geoservice_records: List[LayerRecord] = []
+            if import_geoservice_layers:
+                all_layers = parser.parse_layers()
+                filtered_ids = {li.id for li in filtered_layers}
+                for li in all_layers:
+                    if li.id not in filtered_ids:
+                        geoservice_records.append(LayerRecord(
+                            layer_name=li.name,
+                            layer_type=li.layer_type or 'raster',
+                            geometry_type='',
+                            source_type=li.source_type or 'wms',
+                            datasource=li.datasource or '',
+                            crs=li.crs or project_info.crs or 'EPSG:4326',
+                            qgs_layer_id=li.id,
+                            table_name='',
+                            features_count=0,
+                        ))
+                if geoservice_records:
+                    logger.info(
+                        f"import_geoservice_layers=True: adding "
+                        f"{len(geoservice_records)} geoservice layer(s) as catalog entries"
+                    )
 
             logger.info(
                 f"Parsed '{project_info.title}': "
@@ -163,6 +192,9 @@ class ProjectMigrator:
                 )
                 for li in filtered_layers
             ]
+
+            # Append geoservice-only catalog entries (no extraction) if requested
+            layer_records.extend(geoservice_records)
 
             # ── 3. Build companion_map from uploaded files + embedded data ─
             #
@@ -275,11 +307,8 @@ class ProjectMigrator:
 
                 try:
                     # Open via fiona to get schema, then call extractor internals
-                    open_kwargs: dict = {'path': str(companion_path)}
-                    if fiona_layer:
-                        open_kwargs['layer'] = fiona_layer
-
-                    with fiona.open(**open_kwargs) as src:
+                    # NOTE: fiona.open() first param is named 'fp', NOT 'path'
+                    with fiona.open(str(companion_path), layer=fiona_layer) as src:
                         table_name = extractor._generate_table_name(rec.layer_name)
                         geom_type = src.schema.get('geometry', 'Geometry') or 'Geometry'
                         # Normalise 3D types (e.g. '3D MultiPolygon' → 'MultiPolygon')
@@ -344,6 +373,15 @@ class ProjectMigrator:
                     )
             except Exception as exc:
                 logger.warning(f"MilSymb migration failed (non-fatal): {exc}")
+
+            # ── 6c. Populate prj_schema.project_layers ────────────────────
+            # This is the per-schema catalog (mirrors public.project_layers).
+            # Must be called AFTER feature extraction so table_name/features_count
+            # are already set on all LayerRecord objects.
+            try:
+                self._populate_schema_layers(proj_schema, layer_records)
+            except Exception as exc:
+                logger.warning(f"_populate_schema_layers failed (non-fatal): {exc}")
 
             # ── 7. Rewrite .qgs datasources to PostGIS (qgis-cloud approach) ─
             # For every successfully migrated vector layer, update the XML
@@ -526,10 +564,8 @@ class ProjectMigrator:
     ) -> int:
         """Extract EPSG code from a fiona source; default 4326 if unreadable."""
         try:
-            open_kwargs: dict = {'path': str(companion_path)}
-            if fiona_layer:
-                open_kwargs['layer'] = fiona_layer
-            with fiona.open(**open_kwargs) as src:
+            # NOTE: fiona.open() first param is named 'fp', NOT 'path'
+            with fiona.open(str(companion_path), layer=fiona_layer) as src:
                 crs = src.crs or {}
                 # fiona ≥ 1.9 uses CRS object with .to_epsg()
                 if hasattr(crs, 'to_epsg'):
@@ -583,11 +619,8 @@ class ProjectMigrator:
                 fiona_layer = rec.datasource.split('|layername=')[1].split('|')[0]
 
             try:
-                open_kwargs: dict = {'path': str(companion_path)}
-                if fiona_layer:
-                    open_kwargs['layer'] = fiona_layer
-
-                with fiona.open(**open_kwargs) as src:
+                # NOTE: fiona.open() first param is named 'fp', NOT 'path'
+                with fiona.open(str(companion_path), layer=fiona_layer) as src:
                     count = len(src)
                     geom = (src.schema or {}).get('geometry', '') or ''
 

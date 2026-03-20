@@ -166,11 +166,7 @@ def test_full_extraction_mocked_db():
         if '|layername=' in rec.datasource:
             fiona_layer = rec.datasource.split('|layername=')[1].split('|')[0]
 
-        open_kwargs = {'path': str(companion_path)}
-        if fiona_layer:
-            open_kwargs['layer'] = fiona_layer
-
-        with fiona.open(**open_kwargs) as src:
+        with fiona.open(str(companion_path), layer=fiona_layer) as src:
             table_name = extractor._generate_table_name(rec.layer_name)
             geom_type = src.schema.get('geometry', 'Geometry') or 'Geometry'
             geom_type = geom_type.replace('3D ', '').split()[-1]

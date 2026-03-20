@@ -84,7 +84,7 @@ class LayerExtractor:
         self,
         layer_info: LayerInfo,
         source_path: Path,
-        target_crs: str = 'EPSG:2056',
+        target_crs: str = 'EPSG:4326',
         schema: str = 'public'
     ) -> MigrationResult:
         """
@@ -93,7 +93,7 @@ class LayerExtractor:
         Args:
             layer_info: Layer information from QGZ parser
             source_path: Path to source file (gpkg, shp, geojson, etc.)
-            target_crs: Target CRS for PostGIS (default: EPSG:2056 - Swiss LV95)
+            target_crs: Target CRS for PostGIS (default: EPSG:4326 - WGS84)
             schema: Target PostgreSQL schema (default: public)
             
         Returns:
