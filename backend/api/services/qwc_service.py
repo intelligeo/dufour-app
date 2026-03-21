@@ -202,7 +202,9 @@ class QWCService:
                         # external WMS/WMTS layers are hidden when import_geoservice_layers
                         # was False (they were never added to project_layers).
                         if sublayers:
-                            _catalog = self._get_catalog_layer_names(project_name)
+                            _catalog = self._get_catalog_layer_names(
+                                project_name, qgz_path=_temp_path
+                            )
                             if _catalog:
                                 sublayers = self._filter_sublayers_by_catalog(
                                     sublayers, _catalog
@@ -515,28 +517,76 @@ class QWCService:
     
     # ============ Private Helper Methods ============
 
-    def _get_catalog_layer_names(self, project_name: str) -> set:
+    @staticmethod
+    def _normalize_layer_name(name: str) -> str:
+        """Lowercase, strip accents, collapse whitespace/hyphens to underscores.
+        Used for loose matching between QGIS <layername>, WMS <Name>, and
+        WFS TypeName (shortname) which may differ by case or diacritics."""
+        import unicodedata, re
+        nfkd = unicodedata.normalize('NFKD', name)
+        ascii_str = ''.join(c for c in nfkd if not unicodedata.combining(c))
+        return re.sub(r'[\s\-]+', '_', ascii_str.lower()).strip('_')
+
+    def _get_catalog_layer_names(self, project_name: str,
+                                  qgz_path=None) -> set:
         """
-        Return the set of layer_name values from project_layers catalog for a
-        project.  Used to filter the raw WMS GetCapabilities layer tree so that
-        only layers the user chose to import (import_geoservice_layers flag)
-        appear in the QWC2 theme.
+        Return a set of *all* name variants for layers in this project's catalog.
+        Includes: exact DB layer_name, normalized form, and — when qgz_path is
+        provided — any <shortname> elements and their normalized forms.
+        This wide set is used by _filter_sublayers_by_catalog so that WMS
+        <Name> values (which QGIS Server derives from shortname when WFS-T is
+        enabled) still match the catalog even if they differ by case/diacritics.
         Returns an empty set on any error (disables filtering).
         """
+        allowed: set = set()
         try:
             from database.connection import db
             from sqlalchemy import text as _text
             with db.get_engine().connect() as conn:
                 rows = conn.execute(_text("""
-                    SELECT pl.layer_name
+                    SELECT pl.layer_name, pl.table_name
                     FROM project_layers pl
                     JOIN projects p ON pl.project_id = p.id
                     WHERE p.name = :name
                 """), {'name': project_name}).fetchall()
-            return {row[0] for row in rows}
+            for layer_name, table_name in rows:
+                if layer_name:
+                    allowed.add(layer_name)                       # exact
+                    allowed.add(self._normalize_layer_name(layer_name))  # normalised
+                if table_name:
+                    # table_name is 'lyr_<sanitized>' — add without prefix too
+                    allowed.add(table_name)
+                    without_prefix = table_name[4:] if table_name.startswith('lyr_') else table_name
+                    allowed.add(without_prefix)
         except Exception as exc:
             logger.warning(f"_get_catalog_layer_names({project_name!r}) failed: {exc}")
             return set()
+
+        # Also parse <shortname> elements directly from the cached .qgz so that
+        # WFS-T short names (used by QGIS Server as WMS <Name>) are included.
+        if qgz_path is not None:
+            try:
+                import zipfile, xml.etree.ElementTree as _ET
+                with zipfile.ZipFile(qgz_path, 'r') as zf:
+                    qgs_names = [n for n in zf.namelist()
+                                 if n.lower().endswith('.qgs')]
+                    if qgs_names:
+                        with zf.open(qgs_names[0]) as qf:
+                            root = _ET.parse(qf).getroot()
+                        for ml in root.findall('.//maplayer'):
+                            sn_el = ml.find('shortname')
+                            if sn_el is not None and sn_el.text:
+                                sn = sn_el.text.strip()
+                                allowed.add(sn)
+                                allowed.add(self._normalize_layer_name(sn))
+                            ln_el = ml.find('layername')
+                            if ln_el is not None and ln_el.text:
+                                allowed.add(ln_el.text.strip())
+                                allowed.add(self._normalize_layer_name(ln_el.text.strip()))
+            except Exception as exc:
+                logger.debug(f"_get_catalog_layer_names: QGZ shortname scan failed: {exc}")
+
+        return allowed
 
     def _filter_sublayers_by_catalog(
         self,
@@ -545,9 +595,12 @@ class QWCService:
     ) -> List[Dict[str, Any]]:
         """
         Recursively filter a WMS sublayer tree to only include layers present in
-        allowed_names (the project_layers catalog).  Group layers (entries with
-        children) are kept only when at least one child survives the filter;
-        leaf layers are kept only when their name is in allowed_names.
+        allowed_names (the project_layers catalog).  Comparison is done both on
+        the raw WMS <Name> and its normalized form so that differences in case
+        or diacritics (e.g. QGIS shortname vs layer_name) are tolerated.
+        Group layers (entries with children) are kept only when at least one
+        child survives the filter; leaf layers are kept only when their name
+        (or its normalized form) is in allowed_names.
         """
         result = []
         for sub in sublayers:
@@ -559,7 +612,9 @@ class QWCService:
                 if filtered_children:
                     result.append({**sub, "sublayers": filtered_children})
             else:
-                if (sub.get("name") or "") in allowed_names:
+                wms_name = sub.get("name") or ""
+                if (wms_name in allowed_names
+                        or self._normalize_layer_name(wms_name) in allowed_names):
                     result.append(sub)
         return result
 
