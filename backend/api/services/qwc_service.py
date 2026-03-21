@@ -198,6 +198,15 @@ class QWCService:
                             f"http://localhost/qgis?MAP={_temp_path}"
                         )
                         sublayers = await self._fetch_sublayers_from_wms(_qgis_local_url)
+                        # Filter sublayers against the project_layers catalog so that
+                        # external WMS/WMTS layers are hidden when import_geoservice_layers
+                        # was False (they were never added to project_layers).
+                        if sublayers:
+                            _catalog = self._get_catalog_layer_names(project_name)
+                            if _catalog:
+                                sublayers = self._filter_sublayers_by_catalog(
+                                    sublayers, _catalog
+                                )
                 except Exception as exc:
                     logger.warning(f"themes: WMS sublayer fetch failed for {project_name}: {exc}")
 
@@ -505,6 +514,54 @@ class QWCService:
     
     
     # ============ Private Helper Methods ============
+
+    def _get_catalog_layer_names(self, project_name: str) -> set:
+        """
+        Return the set of layer_name values from project_layers catalog for a
+        project.  Used to filter the raw WMS GetCapabilities layer tree so that
+        only layers the user chose to import (import_geoservice_layers flag)
+        appear in the QWC2 theme.
+        Returns an empty set on any error (disables filtering).
+        """
+        try:
+            from database.connection import db
+            from sqlalchemy import text as _text
+            with db.get_engine().connect() as conn:
+                rows = conn.execute(_text("""
+                    SELECT pl.layer_name
+                    FROM project_layers pl
+                    JOIN projects p ON pl.project_id = p.id
+                    WHERE p.name = :name
+                """), {'name': project_name}).fetchall()
+            return {row[0] for row in rows}
+        except Exception as exc:
+            logger.warning(f"_get_catalog_layer_names({project_name!r}) failed: {exc}")
+            return set()
+
+    def _filter_sublayers_by_catalog(
+        self,
+        sublayers: List[Dict[str, Any]],
+        allowed_names: set,
+    ) -> List[Dict[str, Any]]:
+        """
+        Recursively filter a WMS sublayer tree to only include layers present in
+        allowed_names (the project_layers catalog).  Group layers (entries with
+        children) are kept only when at least one child survives the filter;
+        leaf layers are kept only when their name is in allowed_names.
+        """
+        result = []
+        for sub in sublayers:
+            children = sub.get("sublayers") or []
+            if children:
+                filtered_children = self._filter_sublayers_by_catalog(
+                    children, allowed_names
+                )
+                if filtered_children:
+                    result.append({**sub, "sublayers": filtered_children})
+            else:
+                if (sub.get("name") or "") in allowed_names:
+                    result.append(sub)
+        return result
 
     async def _fetch_sublayers_from_wms(self, wms_url: str) -> List[Dict[str, Any]]:
         """
