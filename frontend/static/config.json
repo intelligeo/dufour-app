@@ -319,7 +319,24 @@
         }
       },
       {
-        "name": "AttributeTable"
+        "name": "AttributeTable",
+        "cfg": {
+          "allowAddForGeometryLayers": true,
+          "hideIdColumn": false,
+          "limitToExtent": false,
+          "showEditFormButton": true,
+          "showHiddenFields": true,
+          "showLimitToExtent": true,
+          "zoomLevel": 1000,
+          "geometry": {
+            "initialWidth": 800,
+            "initialHeight": 480,
+            "initialX": 0,
+            "initialY": 0,
+            "initiallyDocked": true,
+            "side": "bottom"
+          }
+        }
       },
       {
         "name": "GeometryDigitizer"
