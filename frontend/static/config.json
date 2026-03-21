@@ -228,16 +228,35 @@
         }
       },
       {
-        "name": "Redlining"
+        "name": "Redlining",
+        "cfg": {
+          "allowGeometryLabels": true,
+          "snapping": true,
+          "snappingActive": false
+        }
       },
       {
-        "name": "Editing"
+        "name": "Editing",
+        "cfg": {
+          "allowCloneGeometry": true,
+          "deleteCascade": false,
+          "initialWidth": 320,
+          "initialHeight": 480
+        }
       },
       {
-        "name": "MapCopyright"
+        "name": "MapCopyright",
+        "cfg": {
+          "prefixCopyrightSymbol": true
+        }
       },
       {
-        "name": "MapInfoTooltip"
+        "name": "MapInfoTooltip",
+        "cfg": {
+          "elevationServiceUrl": "",
+          "elevationPrecision": 0,
+          "mercatorBearing": false
+        }
       },
       {
         "name": "Share",
