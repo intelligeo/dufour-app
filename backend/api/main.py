@@ -2542,11 +2542,57 @@ async def admin_list_projects(_=Depends(require_admin)):
 
 @app.delete("/api/admin/projects/{project_name}", tags=["admin"])
 async def admin_delete_project(project_name: str, _=Depends(require_admin)):
-    """Delete any project (admin only)."""
-    ok = storage_service.delete_project(project_name)
-    if not ok:
-        raise HTTPException(404, f"Project '{project_name}' not found")
-    return {"deleted": project_name}
+    """Delete any project (admin only) — drops per-project schema with CASCADE."""
+    try:
+        # ── 1. Fetch project metadata ─────────────────────────────────
+        with db.get_engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT id, schema_name FROM projects WHERE name = :name"),
+                {'name': project_name}
+            ).fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+
+        project_id = str(row[0])
+        schema_name = row[1]
+        if not schema_name:
+            from services.project_migrator import _schema_name as _derive_schema
+            schema_name = _derive_schema(project_name)
+
+        # ── 2. Drop per-project schema (CASCADE removes all lyr_* tables) ─
+        if schema_name:
+            with db.get_engine().connect() as conn:
+                conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+                conn.commit()
+            logger.info(f"admin_delete_project: dropped schema {schema_name}")
+
+        # ── 3. Remove from central project_layers catalog ────────────
+        with db.get_engine().connect() as conn:
+            conn.execute(
+                text("DELETE FROM project_layers WHERE project_id = :pid"),
+                {'pid': project_id}
+            )
+            conn.commit()
+
+        # ── 4. Delete project record + qgz binary ────────────────────
+        ok = storage_service.delete_project(project_name)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+
+        # ── 5. Best-effort: remove cached .qgz from temp dir ─────────
+        try:
+            _cached = Path(tempfile.gettempdir()) / 'dufour_qgis_projects' / f"{project_name}.qgz"
+            if _cached.exists():
+                _cached.unlink()
+        except Exception:
+            pass
+
+        return {"deleted": project_name}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ==================== USER ENDPOINTS ====================
