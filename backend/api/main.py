@@ -1851,6 +1851,157 @@ async def compose_print_with_symbols(request: dict):
         )
 
 
+# ==================== PRINT HELPERS ====================
+
+def _png_bytes_to_pdf(png_bytes: bytes, dpi: int = 300) -> bytes:
+    """
+    Wrap a PNG raster in a PDF page using Pillow.
+
+    Pillow's PDF writer embeds the full-resolution raster inside a valid
+    single-page PDF.  Page dimensions are derived from pixel size ÷ DPI so
+    the physical paper size is preserved exactly.
+
+    This is used instead of QGIS Server's built-in GetPrint PDF renderer,
+    which is unreliable in Docker containers because Qt's PDF print driver
+    requires a display server and native font/printer support that is not
+    present in headless QGIS Server images.
+    """
+    from PIL import Image
+    import io as _io
+
+    img = Image.open(_io.BytesIO(png_bytes))
+    img_rgb = img.convert("RGB")
+
+    out = _io.BytesIO()
+    # Pillow saves a single-page PDF; resolution= sets the DPI metadata so
+    # PDF viewers display the correct physical size.
+    img_rgb.save(out, format="PDF", resolution=float(dpi))
+    out.seek(0)
+    return out.getvalue()
+
+
+async def _render_getprint_png(
+    qgis_url: str,
+    params: dict,
+    qgis_timeout: float = 120.0,
+) -> bytes:
+    """
+    Ask QGIS Server for a GetPrint response in PNG format.
+
+    Overrides FORMAT → image/png and drops any SIZE-related constraints
+    so QGIS Server computes the output size from the layout template + DPI.
+    Returns raw PNG bytes.
+    """
+    import httpx as _httpx
+
+    png_params = dict(params)
+    png_params["FORMAT"] = "image/png"
+    # Ensure QGIS Server doesn't complain about a stale application/pdf format
+    png_params.pop("format", None)   # drop lower-case duplicate if present
+
+    async with _httpx.AsyncClient(timeout=qgis_timeout) as _client:
+        resp = await _client.get(qgis_url, params=png_params)
+
+    ct = resp.headers.get("Content-Type", "")
+    if resp.status_code != 200 or "image" not in ct:
+        snippet = resp.text[:300] if hasattr(resp, "text") else repr(resp.content[:300])
+        raise RuntimeError(
+            f"QGIS GetPrint PNG failed ({resp.status_code}): {snippet}"
+        )
+    return resp.content
+
+
+# ── Print preview endpoint ────────────────────────────────────────────────────
+
+@app.get("/api/projects/{project_name}/print/preview", tags=["wms"])
+async def print_preview(
+    project_name: str,
+    request: Request,
+):
+    """
+    # Print Preview (PNG)
+
+    Returns a PNG preview of the requested print layout **without** generating
+    a PDF.  Use this to let the user confirm layout, extent and labels before
+    triggering the full PDF download.
+
+    Accepts exactly the same query parameters as a WMS ``GetPrint`` request:
+
+    ```
+    GET /api/projects/my_project/print/preview
+        ?TEMPLATE=A4+Portrait
+        &map0:EXTENT=665000,5750000,900000,5950000
+        &map0:CRS=EPSG:3857
+        &map0:LAYERS=layer1,layer2
+        &DPI=150
+        &TRANSPARENT=true
+    ```
+
+    The endpoint forces ``FORMAT=image/png`` regardless of what the client
+    sends, so the QGIS Server PDF driver is never invoked.
+
+    **Resolution tip:** use ``DPI=150`` for a fast preview, ``DPI=300`` for
+    the production PDF.
+    """
+    try:
+        from services.qgis_storage_service import storage_service as _ss
+    except Exception as _imp_err:
+        raise HTTPException(status_code=500, detail=f"Storage service unavailable: {_imp_err}")
+
+    # ── Ensure .qgz is on disk ────────────────────────────────────────────────
+    try:
+        qgz_bytes = _ss.retrieve_qgz(project_name)
+    except Exception as _db_err:
+        raise HTTPException(status_code=502, detail=f"DB error: {_db_err}")
+    if not qgz_bytes:
+        raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+
+    temp_dir = Path(tempfile.gettempdir()) / "dufour_qgis_projects"
+    temp_dir.mkdir(exist_ok=True)
+    temp_path = temp_dir / f"{project_name}.qgz"
+    if not temp_path.exists() or temp_path.stat().st_size != len(qgz_bytes):
+        temp_path.write_bytes(qgz_bytes)
+
+    # ── Build QGIS GetPrint params ────────────────────────────────────────────
+    qgis_server_url = "http://localhost:80/qgis"
+    qp = dict(request.query_params)
+    qp["MAP"] = str(temp_path)
+    qp["SERVICE"] = "WMS"
+    qp["VERSION"] = qp.get("VERSION", "1.3.0")
+    qp["REQUEST"] = "GetPrint"
+    qp["FORMAT"] = "image/png"   # always PNG for preview
+
+    # Default DPI 150 for a fast preview
+    if "DPI" not in qp:
+        qp["DPI"] = "150"
+
+    if "TEMPLATE" not in qp:
+        raise HTTPException(
+            status_code=422,
+            detail="Missing required parameter: TEMPLATE (print layout name)",
+        )
+
+    try:
+        png_bytes = await _render_getprint_png(qgis_server_url, qp)
+    except RuntimeError as _re:
+        logger.error(f"print_preview: {_re}")
+        raise HTTPException(status_code=502, detail=str(_re))
+    except Exception as _exc:
+        logger.error(f"print_preview unexpected error: {_exc}")
+        raise HTTPException(status_code=500, detail=str(_exc))
+
+    template_safe = re.sub(r"[^\w\-]", "_", qp.get("TEMPLATE", "preview"))
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="{project_name}_{template_safe}_preview.png"',
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 # ==================== WMS PROXY ENDPOINTS ====================
 
 @app.get("/api/projects/{project_name}/thumbnail", tags=["wms"])
@@ -2087,7 +2238,42 @@ async def wms_proxy(project_name: str, request: Request):
                 for key, values in post_params.items():
                     if key not in query_params:
                         query_params[key] = values[0]
-            
+
+            # ── GetPrint PDF → PNG + Pillow PDF conversion ────────────────────
+            # QGIS Server's built-in PDF renderer requires a native Qt print
+            # driver that is unavailable in headless Docker containers, which
+            # causes corrupted or empty PDFs.  We intercept every GetPrint
+            # request that asks for PDF, re-render as PNG, and wrap it in a
+            # standards-compliant PDF using Pillow (already a dependency).
+            _req_type = query_params.get('REQUEST', '').upper()
+            _req_fmt  = query_params.get('FORMAT', '').lower()
+            if _req_type == 'GETPRINT' and 'pdf' in _req_fmt:
+                try:
+                    logger.info(
+                        f"WMS proxy: intercepting GetPrint PDF for '{project_name}' "
+                        f"— rendering as PNG then converting via Pillow"
+                    )
+                    _dpi = int(query_params.get('DPI', 300))
+                    _png = await _render_getprint_png(qgis_server_url, query_params)
+                    _pdf = _png_bytes_to_pdf(_png, dpi=_dpi)
+                    _tpl = re.sub(r'[^\w\-]', '_', query_params.get('TEMPLATE', 'print'))
+                    return Response(
+                        content=_pdf,
+                        status_code=200,
+                        headers={
+                            'Content-Type': 'application/pdf',
+                            'Content-Disposition':
+                                f'attachment; filename="{project_name}_{_tpl}.pdf"',
+                            'Access-Control-Allow-Origin': '*',
+                        },
+                    )
+                except Exception as _pdf_exc:
+                    logger.error(
+                        f"WMS proxy: GetPrint PDF conversion failed for "
+                        f"'{project_name}': {_pdf_exc} — falling back to QGIS PDF"
+                    )
+                    # Fall through to the standard proxy path as last resort
+
             # Log the forwarded request for debugging
             logger.info(f"WMS proxy → {qgis_server_url} method={request.method} params={list(query_params.keys())}")
             
