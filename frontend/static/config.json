@@ -339,10 +339,31 @@
         }
       },
       {
-        "name": "GeometryDigitizer"
+        "name": "GeometryDigitizer",
+        "cfg": {
+          "styleActive": {
+            "strokeColor": [0, 160, 0, 1],
+            "fillColor": [0, 160, 0, 0.33]
+          },
+          "styleInactive": {
+            "strokeColor": [127, 127, 127, 1],
+            "fillColor": [127, 127, 127, 0.33]
+          }
+        }
       },
       {
-        "name": "FeatureForm"
+        "name": "FeatureForm",
+        "cfg": {
+          "exitTaskOnResultsClose": false,
+          "geometry": {
+            "initialWidth": 320,
+            "initialHeight": 480,
+            "initialX": 0,
+            "initialY": 0,
+            "initiallyDocked": false,
+            "side": "left"
+          }
+        }
       },
       {
         "name": "FeatureSearch"
