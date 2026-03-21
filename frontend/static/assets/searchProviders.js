@@ -11,7 +11,7 @@
  */
 function geoAdminSearchProvider(text, requestId, searchParams, dispatch) {
   const limit = 10;
-  const url = `https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&searchText=${encodeURIComponent(text)}&limit=${limit}&sr=4326`;
+  const url = `https://api3.geo.admin.ch/rest/services/api/SearchServer?type=locations&searchText=${encodeURIComponent(text)}&limit=${limit}&geometryFormat=geojson&sr=3857`;
 
   fetch(url)
     .then(response => response.json())

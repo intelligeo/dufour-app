@@ -24,11 +24,11 @@
         "searchProviders": ["coordinates", "geoadmin"],
         "backgroundLayers": [
           {"name": "swisstopo_national"},
+          {"name": "swisstopo_national_grey"},
           {"name": "arcgis_world_imagery"},
           {"name": "cartodb_dark_matter"},
           {"name": "cartodb_positron"},
-          {"name": "opentopomap"},
-          {"name": "osm"}
+          {"name": "opentopomap"}
         ],
         "thumbnail": "default.jpg",
         "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
@@ -57,8 +57,6 @@
         "type": "xyz",
         "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg",
         "projection": "EPSG:3857",
-        "minZoom": 0,
-        "maxZoom": 17,
         "thumbnail": "img/mapthumbs/swisstopo.jpg",
         "attribution": "© swisstopo"
       },
@@ -68,8 +66,6 @@
         "type": "xyz",
         "url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-grau/default/current/3857/{z}/{x}/{y}.jpeg",
         "projection": "EPSG:3857",
-        "minZoom": 0,
-        "maxZoom": 17,
         "thumbnail": "img/mapthumbs/swisstopo_grey.jpg",
         "attribution": "© swisstopo"
       },
@@ -108,14 +104,6 @@
         "projection": "EPSG:3857",
         "thumbnail": "img/mapthumbs/opentopomap.jpg",
         "attribution": "© OpenStreetMap contributors, © OpenTopoMap (CC-BY-SA)"
-      },
-      {
-        "name": "osm",
-        "title": "OpenStreetMap",
-        "type": "osm",
-        "source": "osm",
-        "thumbnail": "img/mapthumbs/osm.jpg",
-        "attribution": "OpenStreetMap contributors"
       }
     ]
   }
