@@ -212,7 +212,7 @@ export default {
                 coordinateFormatter: coordinateFormatter
             },
             IdentifyPlugin: {
-                attributeCalculator: customAttributeCalculator,
+                customAttributeCalculator: customAttributeCalculator,
                 attributeTransform: attributeTransform,
                 customExporters: customExporters
             }

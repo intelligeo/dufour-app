@@ -18,7 +18,21 @@ logger = logging.getLogger(__name__)
 
 class QWCService:
     """Service for QWC2 configuration management"""
-    
+
+    # Maps lowercase/stripped PostGIS geometry type strings → QWC2 geomType
+    _GEOMTYPE_MAP: Dict[str, str] = {
+        "point":              "Point",
+        "multipoint":         "Point",
+        "linestring":         "Line",
+        "multilinestring":    "Line",
+        "line":               "Line",
+        "polyline":           "Line",
+        "polygon":            "Polygon",
+        "multipolygon":       "Polygon",
+        "geometrycollection": "Polygon",
+        "geometry":           "Polygon",
+    }
+
     def __init__(self):
         # QWC config directory
         self.qwc_config_dir = Path(os.getenv('QWC_CONFIG_DIR', '/qwc-config'))
@@ -167,6 +181,7 @@ class QWCService:
                 sublayers = []
                 print_layouts = []
                 _qgis_local_url = None
+                _temp_path = None  # kept for QPT fallback below
                 try:
                     from services.qgis_storage_service import storage_service as _ss
                     import tempfile as _tmp
@@ -191,12 +206,30 @@ class QWCService:
                 if not sublayers:
                     sublayers = self._get_project_sublayers(project_name)
 
-                # ── Print layouts from QGIS Server GetProjectSettings ─────────
+                # ── Print layouts: QGIS Server → QPT fallback ─────────────────
+                # Primary: ask QGIS Server via GetProjectSettings (most accurate).
                 if _qgis_local_url:
                     try:
                         print_layouts = await self._fetch_print_layouts_from_wms(_qgis_local_url)
                     except Exception as _plex:
                         logger.debug(f"themes: print layouts fetch skipped for {project_name}: {_plex}")
+
+                # Fallback: parse .qpt files directly from the cached .qgz on disk.
+                # Works even when QGIS Server is not yet running (cold start / offline).
+                if not print_layouts and _temp_path and _temp_path.exists():
+                    try:
+                        from services.qgz_parser import parse_print_layouts_from_bytes
+                        print_layouts = parse_print_layouts_from_bytes(_temp_path.read_bytes())
+                        if print_layouts:
+                            logger.info(
+                                f"themes: {project_name} — {len(print_layouts)} print "
+                                f"layout(s) from QPT files (QGIS Server fallback)"
+                            )
+                    except Exception as _qpt_exc:
+                        logger.debug(
+                            f"themes: QPT print layout fallback failed for "
+                            f"{project_name}: {_qpt_exc}"
+                        )
 
                 item = {
                     "id": project_name,

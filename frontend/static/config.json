@@ -139,6 +139,7 @@
             {"key": "Measure", "mode": "LineString", "icon": "measure_line"},
             {"key": "Measure", "mode": "Polygon", "icon": "measure_polygon"},
             {"key": "Print", "icon": "print"},
+            {"key": "Identify", "icon": "identify_point"},
             {"key": "Identify", "icon": "identify_region", "mode": "Region"},
             {"key": "MilSymbSizeSlider", "icon": "resize"}
           ],

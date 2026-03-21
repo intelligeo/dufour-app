@@ -690,3 +690,115 @@ class QGZParser:
             f"from {self.temp_dir}"
         )
         return result
+
+
+# ── QGIS 3.x layout item type codes ─────────────────────────────────────────
+_LAYOUT_ITEM_MAP   = "65639"   # QgsLayoutItemMap
+_LAYOUT_ITEM_LABEL = "65641"   # QgsLayoutItemLabel
+_LAYOUT_ITEM_ATLAS = "65651"   # QgsLayoutItemAtlasMap (treated as map too)
+
+
+def parse_print_layouts_from_bytes(qgz_bytes: bytes) -> List[Dict]:
+    """
+    Parse print layout definitions directly from a QGZ (ZIP) file in memory.
+
+    QGIS 3 stores each print layout as a separate ``<name>.qpt`` file inside
+    the ``.qgz`` archive.  This function reads every ``.qpt`` entry and
+    converts it into the dict format expected by QWC2's ``PrintPlugin``:
+
+        {
+            "name": "A4 Portrait",
+            "map":  {"name": "Karte 0", "width": 190.0, "height": 277.0},
+            "labels": ["title", "notes"]
+        }
+
+    ``map.width`` / ``map.height`` are the physical dimensions of the first
+    map frame in millimetres.  QWC2 uses them to compute the print extent
+    when it sends a ``GetPrint`` WMS request.
+
+    Falls back gracefully: any QPT that fails to parse is silently skipped.
+    QGIS 2 projects (``.qgz`` without ``.qpt`` files) return ``[]`` since
+    their layouts are inline in the ``.qgs`` XML (old ``<Composer>`` format).
+    """
+    if not qgz_bytes:
+        return []
+
+    layouts: List[Dict] = []
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(qgz_bytes)) as zf:
+            qpt_names = [n for n in zf.namelist() if n.lower().endswith(".qpt")]
+
+            for qpt_name in sorted(qpt_names):
+                try:
+                    qpt_xml = zf.read(qpt_name).decode("utf-8", errors="replace")
+                    root = ET.fromstring(qpt_xml)
+                except Exception as parse_exc:
+                    logger.debug(f"parse_print_layouts: skipping {qpt_name}: {parse_exc}")
+                    continue
+
+                # Root element is <Layout name="..." units="mm">
+                layout_name = root.get("name", "").strip()
+                if not layout_name:
+                    # Try the filename without prefix (e.g. "xyz_a4_portrait.qpt" → "a4 portrait")
+                    base = qpt_name.rsplit("/", 1)[-1]  # strip any subdir
+                    # strip random prefix (8 chars) added by QGIS when embedding
+                    if len(base) > 12 and base[6] in ("_", "-"):
+                        base = base[7:]
+                    layout_name = base.replace(".qpt", "").replace("_", " ").title()
+
+                # ── Find first map item (type 65639 or 65651, non-empty id) ──
+                map_info: Optional[Dict] = None
+                for item_el in root.iter("LayoutItem"):
+                    itype = item_el.get("type", "")
+                    iid   = item_el.get("id", "").strip()
+                    if itype not in (_LAYOUT_ITEM_MAP, _LAYOUT_ITEM_ATLAS):
+                        continue
+                    if not iid:
+                        continue  # page/background item — skip
+
+                    size_str = item_el.get("size", "")  # "190,277,mm"
+                    w, h = 0.0, 0.0
+                    try:
+                        parts = size_str.split(",")
+                        w = float(parts[0])
+                        h = float(parts[1])
+                    except (IndexError, ValueError):
+                        pass
+
+                    map_info = {"name": iid, "width": w, "height": h}
+                    break  # use only the first map item
+
+                # QPT without a map frame cannot be used for printing
+                if map_info is None:
+                    logger.debug(
+                        f"parse_print_layouts: {qpt_name} has no map item — skipped"
+                    )
+                    continue
+
+                # ── Collect label item ids (type 65641, non-empty id) ─────────
+                label_ids: List[str] = []
+                for item_el in root.iter("LayoutItem"):
+                    if item_el.get("type") != _LAYOUT_ITEM_LABEL:
+                        continue
+                    lid = item_el.get("id", "").strip()
+                    if lid and lid not in label_ids:
+                        label_ids.append(lid)
+
+                layouts.append({
+                    "name":   layout_name,
+                    "map":    map_info,
+                    "labels": label_ids,
+                })
+                logger.debug(
+                    f"parse_print_layouts: {layout_name!r} → map={map_info['name']!r} "
+                    f"({map_info['width']}×{map_info['height']} mm), "
+                    f"{len(label_ids)} labels"
+                )
+
+    except Exception as exc:
+        logger.warning(f"parse_print_layouts_from_bytes: failed: {exc}")
+        return []
+
+    logger.info(f"parse_print_layouts_from_bytes: extracted {len(layouts)} layout(s)")
+    return layouts
