@@ -8,6 +8,7 @@
         "title": "Dufour World",
         "description": "Default Dufour.app theme – upload QGIS projects to add more themes",
         "url": "/api/projects/dufour_default/wms",
+        "version": "1.3.0",
         "attribution": "Dufour.app",
         "mapCrs": "EPSG:3857",
         "bbox": {
@@ -31,7 +32,9 @@
           {"name": "opentopomap"}
         ],
         "thumbnail": "default.jpg",
-        "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"]
+        "additionalMouseCrs": ["EPSG:2056", "EPSG:21781", "WGS84-DMS", "WGS84-DM", "MGRS"],
+        "infoFormats": ["application/json", "application/vnd.ogc.gml", "text/plain"],
+        "queryable": true
       }
     ],
     "subdirs": [],

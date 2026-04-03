@@ -56,7 +56,7 @@
     {"code": "MGRS", "proj": "+proj=longlat +datum=WGS84 +no_defs", "label": "MGRS"}
   ],
   "plugins": {
-    "common": [
+    "desktop": [
       {
         "name": "Map",
         "cfg": {
@@ -124,7 +124,6 @@
               {"key": "FeatureSearch", "icon": "search"},
               {"key": "MapFilter", "icon": "filter"},
               {"key": "MapLegend", "icon": "legend"},
-              {"key": "Routing", "icon": "routing"},
               {"key": "TimeManager", "icon": "time"},
               {"key": "MapCompare", "icon": "sync"},
               {"key": "Editing", "icon": "editing"},
@@ -544,6 +543,49 @@
       },
       {
         "name": "MapExport"
+      },
+      {
+        "name": "Editing",
+        "cfg": {
+          "allowCloneGeometry": true,
+          "deleteCascade": false,
+          "initialWidth": 320,
+          "initialHeight": 480
+        }
+      },
+      {
+        "name": "Help"
+      },
+      {
+        "name": "FeatureForm",
+        "cfg": {
+          "exitTaskOnResultsClose": false,
+          "geometry": {
+            "initialWidth": 320,
+            "initialHeight": 480,
+            "initialX": 0,
+            "initialY": 0,
+            "initiallyDocked": false,
+            "side": "left"
+          }
+        }
+      },
+      {
+        "name": "ScratchDrawing"
+      },
+      {
+        "name": "MapInfoTooltip",
+        "cfg": {
+          "elevationServiceUrl": "https://api3.geo.admin.ch/rest/services/height",
+          "elevationPrecision": 0,
+          "mercatorBearing": false
+        }
+      },
+      {
+        "name": "MapTip"
+      },
+      {
+        "name": "CookiePopup"
       }
     ]
   }

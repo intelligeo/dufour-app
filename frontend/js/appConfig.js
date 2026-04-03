@@ -7,6 +7,7 @@
 /* eslint-disable new-cap */
 
 import {lazy} from 'react';
+import {transform as olTransform} from 'ol/proj';
 
 import {forward as mgrsForward} from 'mgrs';
 
@@ -51,7 +52,6 @@ import PortalPlugin from 'qwc2/plugins/Portal';
 import PrintPlugin from 'qwc2/plugins/Print';
 import RedliningPlugin from 'qwc2/plugins/Redlining';
 import ReportsPlugin from 'qwc2/plugins/Reports';
-import RoutingPlugin from 'qwc2/plugins/Routing';
 import ScratchDrawingPlugin from 'qwc2/plugins/ScratchDrawing';
 import SettingsPlugin from 'qwc2/plugins/Settings';
 import SharePlugin from 'qwc2/plugins/Share';
@@ -78,6 +78,139 @@ import MilSymbSupport from './plugins/MilSymbSupport';
 import CoordinatesUtils from 'qwc2/utils/CoordinatesUtils';
 import LocaleUtils from 'qwc2/utils/LocaleUtils';
 
+const SWISSTOPO_HEIGHT_URL = 'https://api3.geo.admin.ch/rest/services/height';
+const ASLM_DWELL_MS = 2000;
+const ASLM_ERROR_RETRY_MS = 10000;
+const WGS84_PSEUDO_CRS = new Set(['MGRS', 'WGS84-DMS', 'WGS84-DM']);
+
+const aslmState = {
+    lastFetchTs: 0,
+    lastFetchKey: null,
+    hoverKey: null,
+    hoverSinceTs: 0,
+    pending: false,
+    value: null,
+    status: 'idle'
+};
+
+function resolveSourceCrs(crs) {
+    if (!crs) {
+        return 'EPSG:3857';
+    }
+    return WGS84_PSEUDO_CRS.has(crs) ? 'EPSG:4326' : crs;
+}
+
+function toLv95Coordinate(coordinate, crs) {
+    try {
+        const sourceCrs = resolveSourceCrs(crs);
+        if (sourceCrs === 'EPSG:2056') {
+            return coordinate;
+        }
+        return olTransform(coordinate, sourceCrs, 'EPSG:2056');
+    } catch (e) {
+        return null;
+    }
+}
+
+function formatAslmLabel() {
+    if (typeof aslmState.value === 'number' && !isNaN(aslmState.value)) {
+        return 'ASLM: ' + LocaleUtils.toLocaleFixed(aslmState.value, 1) + ' m';
+    }
+    if (aslmState.pending) {
+        return 'ASLM: …';
+    }
+    if (aslmState.status === 'error') {
+        return 'ASLM: n/d';
+    }
+    return 'ASLM: —';
+}
+
+function maybeFetchAslm(coordinate, crs) {
+    const now = Date.now();
+
+    const lv95 = toLv95Coordinate(coordinate, crs);
+    if (!lv95 || lv95.length < 2 || isNaN(lv95[0]) || isNaN(lv95[1])) {
+        return;
+    }
+
+    const locationKey = `${Math.round(lv95[0])}:${Math.round(lv95[1])}`;
+    if (aslmState.hoverKey !== locationKey) {
+        aslmState.hoverKey = locationKey;
+        aslmState.hoverSinceTs = now;
+        return;
+    }
+
+    if (aslmState.pending) {
+        return;
+    }
+
+    if ((now - aslmState.hoverSinceTs) < ASLM_DWELL_MS) {
+        return;
+    }
+
+    if (aslmState.lastFetchKey === locationKey) {
+        if (aslmState.status === 'ok') {
+            return;
+        }
+        if ((now - aslmState.lastFetchTs) < ASLM_ERROR_RETRY_MS) {
+            return;
+        }
+    }
+
+    aslmState.pending = true;
+    aslmState.lastFetchTs = now;
+    aslmState.lastFetchKey = locationKey;
+
+    const url = `${SWISSTOPO_HEIGHT_URL}?easting=${encodeURIComponent(lv95[0])}&northing=${encodeURIComponent(lv95[1])}&sr=2056`;
+    fetch(url)
+        .then((response) => {
+            if (!response.ok) {
+                throw new Error('height request failed');
+            }
+            return response.json();
+        })
+        .then((payload) => {
+            const height = payload && payload.height;
+            const heightNum = Number(height);
+            if (!isNaN(heightNum)) {
+                aslmState.value = heightNum;
+                aslmState.status = 'ok';
+            } else {
+                aslmState.status = 'error';
+            }
+        })
+        .catch(() => {
+            aslmState.status = 'error';
+        })
+        .finally(() => {
+            aslmState.pending = false;
+        });
+}
+
+function formatCoordinateValue(coordinate, crs) {
+    if (!coordinate || coordinate.length < 2) {
+        return "";
+    }
+    if (crs === "MGRS") {
+        try {
+            return mgrsForward([coordinate[0], coordinate[1]], 5);
+        } catch (e) {
+            return "—";
+        }
+    }
+    if (crs === "WGS84-DMS" || crs === "WGS84-DM" || crs === "EPSG:4326") {
+        if (!isNaN(coordinate[0]) && !isNaN(coordinate[1])) {
+            return CoordinatesUtils.getFormattedCoordinate(coordinate, crs);
+        }
+        return "";
+    }
+    if (!isNaN(coordinate[0]) && !isNaN(coordinate[1])) {
+        const decimals = CoordinatesUtils.getPrecision(crs);
+        return LocaleUtils.toLocaleFixed(coordinate[0], decimals) + " " + LocaleUtils.toLocaleFixed(coordinate[1], decimals);
+    }
+    return "";
+}
+
 /**
  * Custom coordinate formatter for the BottomBar.
  *
@@ -91,30 +224,13 @@ import LocaleUtils from 'qwc2/utils/LocaleUtils';
  * swapLonLat from the projection config in config.json.
  */
 function coordinateFormatter(coordinate, crs) {
-    if (crs === "MGRS") {
-        try {
-            // coordinate is already [lon, lat] in WGS84 (MGRS pseudo-CRS = EPSG:4326)
-            return mgrsForward([coordinate[0], coordinate[1]], 5);
-        } catch (e) {
-            return "—";
-        }
+    const baseValue = formatCoordinateValue(coordinate, crs);
+    if (!baseValue) {
+        return baseValue;
     }
-    // WGS84-DMS and WGS84-DM are pseudo-CRS sharing EPSG:4326 proj4 definition.
-    // Use CoordinatesUtils.getFormattedCoordinate which reads format/addDirection/
-    // swapLonLat from config.json projections automatically.
-    if (crs === "WGS84-DMS" || crs === "WGS84-DM" || crs === "EPSG:4326") {
-        if (!isNaN(coordinate[0]) && !isNaN(coordinate[1])) {
-            // coordinate is already in the target CRS (lon, lat)
-            return CoordinatesUtils.getFormattedCoordinate(coordinate, crs);
-        }
-        return "";
-    }
-    // Default formatting for other CRS (metric projections etc.)
-    if (!isNaN(coordinate[0]) && !isNaN(coordinate[1])) {
-        const decimals = CoordinatesUtils.getPrecision(crs);
-        return LocaleUtils.toLocaleFixed(coordinate[0], decimals) + " " + LocaleUtils.toLocaleFixed(coordinate[1], decimals);
-    }
-    return "";
+
+    maybeFetchAslm(coordinate, crs);
+    return baseValue + ' | ' + formatAslmLabel();
 }
 
 export default {
@@ -171,7 +287,6 @@ export default {
                 BufferSupport: BufferSupport
             }),
             ReportsPlugin: ReportsPlugin,
-            RoutingPlugin: RoutingPlugin,
             FeatureSearchPlugin: FeatureSearchPlugin,
             ScratchDrawingPlugin: ScratchDrawingPlugin,
             SettingsPlugin: SettingsPlugin,

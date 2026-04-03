@@ -2222,22 +2222,72 @@ async def wms_proxy(project_name: str, request: Request):
         # Build query string with MAP parameter
         query_params = dict(request.query_params)
         query_params['MAP'] = str(temp_path)
-        
+
+        # Case-insensitive helpers for OGC params (clients may send lower-case keys)
+        def _qget(params: dict, key: str, default=None):
+            key_u = key.upper()
+            for k, v in params.items():
+                if k.upper() == key_u:
+                    return v
+            return default
+
+        # For POST requests, merge body parameters BEFORE setting defaults so that
+        # values sent in the body (e.g. REQUEST=GetPrint, FORMAT=application/pdf)
+        # are not silently overridden by the fallback defaults below.
+        # We deliberately do NOT override MAP, which is controlled by the server.
+        if request.method == "POST":
+            _body = await request.body()
+            from urllib.parse import parse_qs
+            _post_params = parse_qs(_body.decode("utf-8", errors="replace"))
+            for _key, _values in _post_params.items():
+                if _key not in ('MAP',):
+                    query_params[_key] = _values[0]
+
         # Default SERVICE to WMS if not specified
-        if 'SERVICE' not in query_params:
+        if _qget(query_params, 'SERVICE') is None:
             query_params['SERVICE'] = 'WMS'
-        
+
         # Default REQUEST to GetCapabilities if not specified
-        if 'REQUEST' not in query_params:
+        if _qget(query_params, 'REQUEST') is None:
             query_params['REQUEST'] = 'GetCapabilities'
+
+        # Normalize key parameters to canonical upper-case names to avoid
+        # downstream mismatches when clients send lowercase variants.
+        for _k in (
+            'SERVICE', 'REQUEST', 'VERSION', 'FORMAT', 'LAYERS', 'QUERY_LAYERS',
+            'INFO_FORMAT', 'I', 'J', 'X', 'Y', 'WIDTH', 'HEIGHT', 'CRS', 'SRS', 'BBOX', 'DPI'
+        ):
+            _v = _qget(query_params, _k)
+            if _v is not None:
+                query_params[_k] = _v
+
+        # GetFeatureInfo compatibility guardrails:
+        # - ensure QUERY_LAYERS is present (fallback to LAYERS)
+        # - ensure INFO_FORMAT defaults to JSON
+        # - map click pixel params between WMS 1.3 (I/J) and 1.1.1 (X/Y)
+        _request_type = str(_qget(query_params, 'REQUEST', '') or '').upper()
+        _version = str(_qget(query_params, 'VERSION', '1.3.0') or '1.3.0')
+        if _request_type == 'GETFEATUREINFO':
+            _layers = _qget(query_params, 'LAYERS', '')
+            if _qget(query_params, 'QUERY_LAYERS') is None and _layers:
+                query_params['QUERY_LAYERS'] = _layers
+
+            if _qget(query_params, 'INFO_FORMAT') is None:
+                query_params['INFO_FORMAT'] = 'application/json'
+
+            _is_v13 = _version.startswith('1.3')
+            if _is_v13:
+                if _qget(query_params, 'I') is None and _qget(query_params, 'X') is not None:
+                    query_params['I'] = _qget(query_params, 'X')
+                if _qget(query_params, 'J') is None and _qget(query_params, 'Y') is not None:
+                    query_params['J'] = _qget(query_params, 'Y')
+            else:
+                if _qget(query_params, 'X') is None and _qget(query_params, 'I') is not None:
+                    query_params['X'] = _qget(query_params, 'I')
+                if _qget(query_params, 'Y') is None and _qget(query_params, 'J') is not None:
+                    query_params['Y'] = _qget(query_params, 'J')
+
         async with httpx.AsyncClient(timeout=120.0) as client:
-            if request.method == "POST":
-                body = await request.body()
-                from urllib.parse import parse_qs
-                post_params = parse_qs(body.decode("utf-8", errors="replace"))
-                for key, values in post_params.items():
-                    if key not in query_params:
-                        query_params[key] = values[0]
 
             # ── GetPrint PDF → PNG + Pillow PDF conversion ────────────────────
             # QGIS Server's built-in PDF renderer requires a native Qt print
@@ -2245,18 +2295,18 @@ async def wms_proxy(project_name: str, request: Request):
             # causes corrupted or empty PDFs.  We intercept every GetPrint
             # request that asks for PDF, re-render as PNG, and wrap it in a
             # standards-compliant PDF using Pillow (already a dependency).
-            _req_type = query_params.get('REQUEST', '').upper()
-            _req_fmt  = query_params.get('FORMAT', '').lower()
+            _req_type = str(_qget(query_params, 'REQUEST', '') or '').upper()
+            _req_fmt  = str(_qget(query_params, 'FORMAT', '') or '').lower()
             if _req_type == 'GETPRINT' and 'pdf' in _req_fmt:
                 try:
                     logger.info(
                         f"WMS proxy: intercepting GetPrint PDF for '{project_name}' "
                         f"— rendering as PNG then converting via Pillow"
                     )
-                    _dpi = int(query_params.get('DPI', 300))
+                    _dpi = int(_qget(query_params, 'DPI', 300))
                     _png = await _render_getprint_png(qgis_server_url, query_params)
                     _pdf = _png_bytes_to_pdf(_png, dpi=_dpi)
-                    _tpl = re.sub(r'[^\w\-]', '_', query_params.get('TEMPLATE', 'print'))
+                    _tpl = re.sub(r'[^\w\-]', '_', str(_qget(query_params, 'TEMPLATE', 'print')))
                     return Response(
                         content=_pdf,
                         status_code=200,
@@ -2270,9 +2320,20 @@ async def wms_proxy(project_name: str, request: Request):
                 except Exception as _pdf_exc:
                     logger.error(
                         f"WMS proxy: GetPrint PDF conversion failed for "
-                        f"'{project_name}': {_pdf_exc} — falling back to QGIS PDF"
+                        f"'{project_name}': {_pdf_exc}"
                     )
-                    # Fall through to the standard proxy path as last resort
+                    # Do NOT fall through to the standard proxy path: QGIS Server's
+                    # built-in PDF renderer requires a Qt print driver that is absent
+                    # in headless Docker, which produces empty or corrupted PDFs.
+                    # Return a clear 502 so the client gets an actionable error instead.
+                    return Response(
+                        content=f'Print failed for "{project_name}": {_pdf_exc}'.encode(),
+                        status_code=502,
+                        headers={
+                            'Content-Type': 'text/plain',
+                            'Access-Control-Allow-Origin': '*',
+                        },
+                    )
 
             # Log the forwarded request for debugging
             logger.info(f"WMS proxy → {qgis_server_url} method={request.method} params={list(query_params.keys())}")
@@ -2309,7 +2370,7 @@ async def wms_proxy(project_name: str, request: Request):
             # which is not reachable from the browser. Replace it with the public
             # proxy URL /api/projects/{project_name}/wms so QWC2 uses the correct endpoint.
             response_content = response.content
-            req_type = query_params.get('REQUEST', '').upper()
+            req_type = str(_qget(query_params, 'REQUEST', '') or '').upper()
             if req_type in ('GETCAPABILITIES', 'GETPROJECTSETTINGS') and 'xml' in content_type.lower():
                 try:
                     caps_text = response.text
