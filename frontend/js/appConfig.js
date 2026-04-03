@@ -6,7 +6,6 @@
 
 /* eslint-disable new-cap */
 
-import {lazy} from 'react';
 import {transform as olTransform} from 'ol/proj';
 
 import {forward as mgrsForward} from 'mgrs';
@@ -60,7 +59,6 @@ import TaskButtonPlugin from 'qwc2/plugins/TaskButton';
 import ThemeSwitcherPlugin from 'qwc2/plugins/ThemeSwitcher';
 import TimeManagerPlugin from 'qwc2/plugins/TimeManager';
 import TopBarPlugin from 'qwc2/plugins/TopBar';
-import View3DPlugin from 'qwc2/plugins/View3D';
 import {ZoomInPlugin, ZoomOutPlugin} from 'qwc2/plugins/ZoomButtons';
 import EditingSupport from 'qwc2/plugins/map/EditingSupport';
 import LocateSupport from 'qwc2/plugins/map/LocateSupport';
@@ -300,23 +298,6 @@ export default {
                 Search: SearchBox,
                 Toolbar: Toolbar,
                 FullscreenSwitcher: FullscreenSwitcher
-            }),
-            View3DPlugin: View3DPlugin({
-                BackgroundSwitcher3D: lazy(() => import('qwc2/plugins/map3d/BackgroundSwitcher3D')),
-                BottomBar3D: lazy(() => import('qwc2/plugins/map3d/BottomBar3D')),
-                Compare3D: lazy(() => import('qwc2/plugins/map3d/Compare3D')),
-                Draw3D: lazy(() => import('qwc2/plugins/map3d/Draw3D')),
-                ExportObjects3D: lazy(() => import('qwc2/plugins/map3d/ExportObjects3D')),
-                HideObjects3D: lazy(() => import('qwc2/plugins/map3d/HideObjects3D')),
-                Identify3D: lazy(() => import('qwc2/plugins/map3d/Identify3D')),
-                LayerTree3D: lazy(() => import('qwc2/plugins/map3d/LayerTree3D')),
-                MapCopyright3D: lazy(() => import('qwc2/plugins/map3d/MapCopyright3D')),
-                MapExport3D: lazy(() => import('qwc2/plugins/map3d/MapExport3D')),
-                MapLight3D: lazy(() => import('qwc2/plugins/map3d/MapLight3D')),
-                Measure3D: lazy(() => import('qwc2/plugins/map3d/Measure3D')),
-                OverviewMap3D: lazy(() => import('qwc2/plugins/map3d/OverviewMap3D')),
-                Settings3D: lazy(() => import('qwc2/plugins/map3d/Settings3D')),
-                TopBar3D: lazy(() => import('qwc2/plugins/map3d/TopBar3D'))
             }),
             ZoomInPlugin: ZoomInPlugin,
             ZoomOutPlugin: ZoomOutPlugin,
