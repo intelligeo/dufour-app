@@ -153,3 +153,9 @@ a.fi-attr-link:hover {
     padding: 20px;
     font-size: 13px;
 }
+
+/* BottomBar mouse position: make the field a bit wider for coordinates + ASLM */
+.bottombar-mousepos {
+    min-width: 22em;
+    white-space: nowrap;
+}

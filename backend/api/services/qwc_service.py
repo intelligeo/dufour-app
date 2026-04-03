@@ -217,6 +217,12 @@ class QWCService:
                 if not sublayers:
                     sublayers = self._get_project_sublayers(project_name)
 
+                # Ensure MilSymb layers are present in the theme sublayers even when
+                # GetCapabilities returned a non-empty tree that does not include
+                # KadasMilx/plugin-backed layers. This makes them visible as regular
+                # project layers in LayerTree and enables layer-related functions.
+                sublayers = self._merge_missing_milsymb_sublayers(project_name, sublayers)
+
                 # ── Print layouts: QGIS Server → QPT fallback ─────────────────
                 # Primary: ask QGIS Server via GetProjectSettings (most accurate).
                 if _qgis_local_url:
@@ -467,7 +473,7 @@ class QWCService:
                 "name": "cartodb_dark_matter",
                 "title": "CartoDB Dark Matter",
                 "type": "xyz",
-                "url": "http://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                "url": "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
                 "projection": "EPSG:3857",
                 "thumbnail": "img/mapthumbs/cartodb_dark.jpg",
                 "attribution": "© OpenStreetMap contributors, © CARTO"
@@ -476,7 +482,7 @@ class QWCService:
                 "name": "cartodb_positron",
                 "title": "CartoDB Positron",
                 "type": "xyz",
-                "url": "http://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+                "url": "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
                 "projection": "EPSG:3857",
                 "thumbnail": "img/mapthumbs/cartodb_positron.jpg",
                 "attribution": "© OpenStreetMap contributors, © CARTO"
@@ -846,6 +852,87 @@ class QWCService:
                 f"_get_project_sublayers({project_name!r}) failed: {exc}"
             )
             return []
+
+    def _get_milsymb_project_sublayers(self, project_name: str) -> List[Dict[str, Any]]:
+        """
+        Return MilSymb layers from public.project_layers in QWC2 sublayer format.
+        """
+        try:
+            from database.connection import db
+            from sqlalchemy import text as _text
+
+            with db.get_engine().connect() as conn:
+                rows = conn.execute(_text("""
+                    SELECT pl.layer_name, pl.geometry_type, pl.table_name,
+                           pl.features_count, pl.crs
+                    FROM project_layers pl
+                    JOIN projects p ON pl.project_id = p.id
+                    WHERE p.name = :name
+                      AND pl.layer_type = 'milsymb'
+                    ORDER BY pl.layer_name
+                """), {'name': project_name}).fetchall()
+
+            return [{
+                "name": layer_name,
+                "title": layer_name,
+                "visibility": True,
+                "queryable": True,
+                "displayField": "fid",
+                "type": "wms",
+                "geometryType": geom_type or "",
+                "featureCount": feat_count or 0,
+                "crs": crs or "",
+                "postgisTable": table_name or "",
+                "sublayers": [],
+            } for layer_name, geom_type, table_name, feat_count, crs in rows if layer_name]
+        except Exception as exc:
+            logger.debug(f"_get_milsymb_project_sublayers({project_name!r}) failed: {exc}")
+            return []
+
+    def _collect_sublayer_names(self, sublayers: List[Dict[str, Any]]) -> set:
+        """Collect all sublayer names recursively (including group leaves)."""
+        names = set()
+
+        def _walk(nodes):
+            for node in nodes or []:
+                name = (node.get("name") or "").strip()
+                if name:
+                    names.add(name)
+                    names.add(self._normalize_layer_name(name))
+                children = node.get("sublayers") or []
+                if children:
+                    _walk(children)
+
+        _walk(sublayers)
+        return names
+
+    def _merge_missing_milsymb_sublayers(
+        self,
+        project_name: str,
+        sublayers: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Append MilSymb project layers not present in the current sublayer tree.
+        """
+        if not sublayers:
+            return sublayers
+
+        existing = self._collect_sublayer_names(sublayers)
+        milsymb_layers = self._get_milsymb_project_sublayers(project_name)
+        missing = []
+        for lyr in milsymb_layers:
+            name = (lyr.get("name") or "").strip()
+            norm = self._normalize_layer_name(name)
+            if name and name not in existing and norm not in existing:
+                missing.append(lyr)
+
+        if missing:
+            logger.info(
+                f"themes: {project_name} appending {len(missing)} missing MilSymb "
+                f"layer(s) to sublayers"
+            )
+            return [*sublayers, *missing]
+        return sublayers
 
     def _extent_to_wgs84(self, extent: list, src_crs: str) -> List[float]:
         """

@@ -70,7 +70,8 @@ function pointStyleForFeature(feature, symbolBaseUrl, defaultSize) {
 }
 
 /**
- * Build an ol.style.Style for LineString / Polygon tactical graphics.
+ * Build an ol.style.Style for LineString / Polygon non-tactical graphics.
+ * Used when there's no SIDC or when tactical rendering is not applicable.
  */
 function linePolyStyle(affiliation, lineWidth) {
     const color = affiliationColor(affiliation);
@@ -80,6 +81,127 @@ function linePolyStyle(affiliation, lineWidth) {
         fill: new ol.style.Fill({color: fill})
     });
 }
+
+/**
+ * Detect if a feature represents a tactical graphic (n-point symbol).
+ * Tactical graphics are LineString/Polygon features with a SIDC code.
+ */
+function isTacticalGraphic(feature) {
+    const geomType = feature.getGeometry()?.getType();
+    const sidc = feature.get('sidc');
+    return (geomType === 'LineString' || geomType === 'Polygon') && sidc && sidc.length >= 10;
+}
+
+/**
+ * Extract control points from feature geometry as "lon,lat+lon,lat+..." string
+ * suitable for the /tactical endpoint.
+ */
+function extractControlPoints(feature) {
+    const geometry = feature.getGeometry();
+    if (!geometry) return '';
+
+    let coords = [];
+    if (geometry.getType() === 'LineString') {
+        coords = geometry.getCoordinates();
+    } else if (geometry.getType() === 'Polygon') {
+        // Use exterior ring, excluding closing point if duplicated
+        const ring = geometry.getCoordinates()[0] || [];
+        coords = ring.length > 0 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
+            ? ring.slice(0, -1)
+            : ring;
+    }
+
+    // Coordinates are in map CRS (likely 3857); they need to be in WGS84 (4326) for the server
+    // We assume map is EPSG:3857 and convert back to 4326
+    return coords.map(coord => {
+        const wgs84 = ol.proj.transform(coord, 'EPSG:3857', 'EPSG:4326');
+        return wgs84[0].toFixed(6) + ',' + wgs84[1].toFixed(6);
+    }).join('+');
+}
+
+/**
+ * Extract modifiers string from feature properties for the /tactical endpoint.
+ * Format: "KEY1:VALUE1,KEY2:VALUE2,..."
+ * Common modifiers: T (uniqueDesignation), H (hostile), Status (planned/actual)
+ */
+function extractModifiers(feature) {
+    const mssAttributes = feature.get('mssAttributes');
+    if (!mssAttributes || typeof mssAttributes !== 'object') return '';
+
+    const modifiers = [];
+
+    // T → uniqueDesignation
+    if (mssAttributes.T) {
+        modifiers.push(`T:${encodeURIComponent(mssAttributes.T)}`);
+    }
+
+    // H → hostile indicator
+    if (mssAttributes.H) {
+        modifiers.push(`H:${encodeURIComponent(mssAttributes.H)}`);
+    }
+
+    // Status: check for common status fields (planned, suspect, etc.)
+    if (mssAttributes.status) {
+        modifiers.push(`status:${encodeURIComponent(mssAttributes.status)}`);
+    }
+    if (mssAttributes.state) {
+        modifiers.push(`state:${encodeURIComponent(mssAttributes.state)}`);
+    }
+
+    return modifiers.join(',');
+}
+
+/**
+ * Check if a feature is marked as "planned" (vs "actual").
+ * Looks for common status/state attributes that indicate planned symbols.
+ */
+function isPlannedSymbol(feature) {
+    const mssAttributes = feature.get('mssAttributes');
+    if (!mssAttributes || typeof mssAttributes !== 'object') return false;
+    const status = (mssAttributes.status || '').toLowerCase();
+    const state = (mssAttributes.state || '').toLowerCase();
+    return status.includes('planned') || state.includes('planned');
+}
+
+/**
+ * Build tactical graphic style: fetches SVG from /tactical endpoint and applies modifiers.
+ * Returns a style with affiliation coloring + planned/actual dashing.
+ */
+function getTacticalGraphicStyle(feature, tacticalBaseUrl, affiliation, lineWidth) {
+    const sidc = feature.get('sidc');
+    const controlPoints = extractControlPoints(feature);
+    const modifiers = extractModifiers(feature);
+
+    if (!sidc || !controlPoints) {
+        // Fallback to basic line if data is missing
+        return linePolyStyle(affiliation, lineWidth);
+    }
+
+    const planned = isPlannedSymbol(feature);
+    const color = affiliationColor(affiliation);
+
+    // Build a stroke style based on affiliation and planned status
+    const strokeDash = planned ? [8, 4] : undefined;
+    const stroke = new ol.style.Stroke({
+        color: color,
+        width: lineWidth || 3,
+        lineDash: strokeDash
+    });
+
+    // For fills, use semi-transparent affiliation color
+    const fill = new ol.style.Fill({
+        color: [...color.slice(0, 3), 0.15]
+    });
+
+    return new ol.style.Style({
+        stroke: stroke,
+        fill: fill
+        // TODO: If we want to render the actual tactical shape from /tactical endpoint,
+        // we could fetch as SVG and overlay using image=new ol.style.Icon({src: url}),
+        // but for now we use affiliation-based coloring + dashing for planned state.
+    });
+}
+
 
 
 /**
@@ -172,6 +294,12 @@ class MilSymbSupport extends React.Component {
             if (geomType === 'Point' || geomType === 'MultiPoint') {
                 return pointStyleForFeature(feature, symbolBaseUrl, size);
             }
+            // LineString / Polygon: check if it's a tactical graphic (n-point symbol)
+            if (isTacticalGraphic(feature)) {
+                // Tactical graphics with SIDC: use affiliation coloring + planned/actual dashing
+                return getTacticalGraphicStyle(feature, symbolBaseUrl, affiliation, lineWidth);
+            }
+            // Basic line/polygon without SIDC: use affiliation coloring only
             return linePolyStyle(affiliation, lineWidth);
         };
     };

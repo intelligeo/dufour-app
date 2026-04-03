@@ -85,7 +85,7 @@
         "name": "cartodb_dark_matter",
         "title": "CartoDB Dark Matter",
         "type": "xyz",
-        "url": "http://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        "url": "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
         "projection": "EPSG:3857",
         "thumbnail": "img/mapthumbs/cartodb_dark.jpg",
         "attribution": "© OpenStreetMap contributors, © CARTO"
@@ -94,7 +94,7 @@
         "name": "cartodb_positron",
         "title": "CartoDB Positron",
         "type": "xyz",
-        "url": "http://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+        "url": "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
         "projection": "EPSG:3857",
         "thumbnail": "img/mapthumbs/cartodb_positron.jpg",
         "attribution": "© OpenStreetMap contributors, © CARTO"

@@ -1893,6 +1893,62 @@ async def _render_getprint_png(
     Returns raw PNG bytes.
     """
     import httpx as _httpx
+    import xml.etree.ElementTree as _ET
+
+    def _normalize_template_name(name: str) -> str:
+        return re.sub(r"[\s_\-]+", "", (name or "").strip().lower())
+
+    async def _fetch_available_templates(_client: _httpx.AsyncClient, _base_params: dict) -> List[str]:
+        gps_params = {
+            "MAP": _base_params.get("MAP", ""),
+            "SERVICE": "WMS",
+            "VERSION": _base_params.get("VERSION", "1.3.0"),
+            "REQUEST": "GetProjectSettings",
+        }
+        resp = await _client.get(qgis_url, params=gps_params)
+        if resp.status_code != 200:
+            return []
+        try:
+            root = _ET.fromstring(resp.text)
+        except Exception:
+            return []
+
+        templates: List[str] = []
+        for el in root.iter():
+            tag = el.tag.split('}')[-1] if '}' in el.tag else el.tag
+            if tag == "ComposerTemplate":
+                name = (el.get("name") or "").strip()
+                if name:
+                    templates.append(name)
+        return templates
+
+    def _choose_best_template(requested: str, available: List[str]) -> Optional[str]:
+        if not available:
+            return None
+
+        req = (requested or "").strip()
+        if not req:
+            return available[0]
+
+        # 1) Exact match
+        for tmpl in available:
+            if tmpl == req:
+                return tmpl
+
+        # 2) Case-insensitive match
+        req_lower = req.lower()
+        for tmpl in available:
+            if tmpl.lower() == req_lower:
+                return tmpl
+
+        # 3) Loose match: ignore whitespace, underscores, hyphens
+        req_norm = _normalize_template_name(req)
+        for tmpl in available:
+            if _normalize_template_name(tmpl) == req_norm:
+                return tmpl
+
+        # 4) Fallback: first available template
+        return available[0]
 
     png_params = dict(params)
     png_params["FORMAT"] = "image/png"
@@ -1901,6 +1957,23 @@ async def _render_getprint_png(
 
     async with _httpx.AsyncClient(timeout=qgis_timeout) as _client:
         resp = await _client.get(qgis_url, params=png_params)
+
+        # If requested TEMPLATE is invalid, resolve available templates from
+        # GetProjectSettings and retry once with the closest match.
+        if resp.status_code != 200 and "TEMPLATE parameter is invalid" in (resp.text or ""):
+            requested_tmpl = str(png_params.get("TEMPLATE", "") or "")
+            available_tmpls = await _fetch_available_templates(_client, png_params)
+            chosen_tmpl = _choose_best_template(requested_tmpl, available_tmpls)
+            if chosen_tmpl:
+                logger.warning(
+                    "GetPrint: TEMPLATE '%s' invalid, retrying with '%s' (available=%s)",
+                    requested_tmpl,
+                    chosen_tmpl,
+                    available_tmpls,
+                )
+                retry_params = dict(png_params)
+                retry_params["TEMPLATE"] = chosen_tmpl
+                resp = await _client.get(qgis_url, params=retry_params)
 
     ct = resp.headers.get("Content-Type", "")
     if resp.status_code != 200 or "image" not in ct:
