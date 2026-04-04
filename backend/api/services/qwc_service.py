@@ -876,9 +876,12 @@ class QWCService:
                 "name": layer_name,
                 "title": layer_name,
                 "visibility": True,
-                "queryable": True,
+                # MilSymb layers are rendered client-side by MilSymbSupport.jsx;
+                # they are NOT served by QGIS WMS, so mark them accordingly.
+                "queryable": False,
                 "displayField": "fid",
-                "type": "wms",
+                "type": "wms",   # kept for QWC2 layer-tree compatibility
+                "milsymb": True,  # custom flag: frontend uses for special handling
                 "geometryType": geom_type or "",
                 "featureCount": feat_count or 0,
                 "crs": crs or "",
@@ -913,12 +916,16 @@ class QWCService:
     ) -> List[Dict[str, Any]]:
         """
         Append MilSymb project layers not present in the current sublayer tree.
+
+        NOTE: intentionally does NOT short-circuit when sublayers is empty so
+        that MilSymb-only projects (no standard WMS layers) also get their
+        layers injected into the layer tree.
         """
-        if not sublayers:
+        milsymb_layers = self._get_milsymb_project_sublayers(project_name)
+        if not milsymb_layers:
             return sublayers
 
         existing = self._collect_sublayer_names(sublayers)
-        milsymb_layers = self._get_milsymb_project_sublayers(project_name)
         missing = []
         for lyr in milsymb_layers:
             name = (lyr.get("name") or "").strip()
@@ -1234,7 +1241,7 @@ class QWCService:
                     logger.debug(f"editConfig: column introspection failed for "
                                  f"{schema_name}.{table_name}: {col_exc}")
 
-            edit_config[layer_name] = {
+            entry = {
                 "editDataset": f"{project_name}/{table_name}",
                 "layerTitle": layer_name,
                 "geomType": qwc_geom,
@@ -1246,5 +1253,13 @@ class QWCService:
                     "deletable": True,
                 }
             }
+            # Register the entry under the exact layer_name AND its normalised
+            # form so that QWC2 can find it even when the WMS <Name> (which may
+            # use a QGIS shortname derived from the layer_name) differs only in
+            # case, diacritics or whitespace/separator characters.
+            edit_config[layer_name] = entry
+            normalised = self._normalize_layer_name(layer_name)
+            if normalised and normalised != layer_name:
+                edit_config.setdefault(normalised, entry)
 
         return edit_config

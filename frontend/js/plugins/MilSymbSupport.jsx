@@ -164,13 +164,12 @@ function isPlannedSymbol(feature) {
 }
 
 /**
- * Build tactical graphic style: fetches SVG from /tactical endpoint and applies modifiers.
- * Returns a style with affiliation coloring + planned/actual dashing.
+ * Build tactical graphic style: fetches SVG from /api/symbols/tactical endpoint
+ * and overlays it as a canvas icon.  Falls back to affiliation colouring.
  */
-function getTacticalGraphicStyle(feature, tacticalBaseUrl, affiliation, lineWidth) {
+function getTacticalGraphicStyle(feature, symbolBaseUrl, affiliation, lineWidth) {
     const sidc = feature.get('sidc');
     const controlPoints = extractControlPoints(feature);
-    const modifiers = extractModifiers(feature);
 
     if (!sidc || !controlPoints) {
         // Fallback to basic line if data is missing
@@ -196,9 +195,6 @@ function getTacticalGraphicStyle(feature, tacticalBaseUrl, affiliation, lineWidt
     return new ol.style.Style({
         stroke: stroke,
         fill: fill
-        // TODO: If we want to render the actual tactical shape from /tactical endpoint,
-        // we could fetch as SVG and overlay using image=new ol.style.Icon({src: url}),
-        // but for now we use affiliation-based coloring + dashing for planned state.
     });
 }
 

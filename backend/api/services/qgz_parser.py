@@ -436,16 +436,36 @@ class QGZParser:
             return None
 
         # ── Geometry ──
-        points = state.get('points', [])
-        if not points:
+        raw_points = state.get('points', [])
+        if not raw_points:
             return None
 
-        sym_type = props.get('symbolType', 'Other')
-        if sym_type in ('Other', 'Point') or len(points) == 1:
+        # Normalise coordinate representation.
+        # Kadas / MSS may store points as [[lon, lat], ...] (JSON arrays) OR as
+        # [{"x": lon, "y": lat, ...}, ...] (dicts).  Both formats are handled so
+        # that n-point tactical graphics parse correctly regardless of Kadas version.
+        def _norm_pt(p) -> List[float]:
+            if isinstance(p, (list, tuple)) and len(p) >= 2:
+                return [float(p[0]), float(p[1])]
+            if isinstance(p, dict):
+                x = p.get('x', p.get('lon', p.get('longitude', 0)))
+                y = p.get('y', p.get('lat', p.get('latitude', 0)))
+                return [float(x), float(y)]
+            return [0.0, 0.0]
+
+        points = [_norm_pt(p) for p in raw_points]
+
+        sym_type = (props.get('symbolType') or 'Other').strip()
+        # Kadas uses "Point"/"Line"/"Area"/"None" (may also be sent as lower-case)
+        sym_type_lower = sym_type.lower()
+        if sym_type_lower in ('point', 'none', 'other') or len(points) == 1:
             geom_type = 'Point'
-        elif sym_type == 'Polygon' or (len(points) > 2 and points[-1] == points[-2]):
+        elif sym_type_lower in ('area', 'polygon') or (
+            len(points) > 2 and points[-1] == points[-2]
+        ):
             geom_type = 'Polygon'
         else:
+            # "Line", "Route", or any other multi-point type
             geom_type = 'LineString'
 
         return MilSymbFeature(

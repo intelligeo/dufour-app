@@ -128,7 +128,7 @@ JWT bearer tokens via `/api/auth/login`. Admin endpoints require the `admin` rol
         },
         {
             "name": "symbols",
-            "description": "Military symbol rendering — APP-6D / MIL-STD-2525C, SVG & PNG, batch, print composition"
+            "description": "Military symbol rendering — APP-6D / MIL-STD-2525C, SVG & PNG, batch, print composition; MilSymb (KadasMilxLayer) layer listing & GeoJSON export"
         },
         {
             "name": "auth",
@@ -1412,6 +1412,62 @@ async def symbols_health():
     }
 
 
+@app.get("/api/symbols/tactical", tags=["symbols"])
+async def render_tactical_graphic(request: Request):
+    """
+    # Render N-Point Tactical Graphic (MIL-STD-2525D/E)
+
+    Proxy to the milsymbol-server `/tactical` endpoint which uses the
+    **mil-sym-ts** library to render geo-referenced SVG tactical graphics
+    (lines, areas, boundaries …) from n control points.
+
+    ## Query Parameters:
+    - `sidc` — SIDC code (MIL-STD-2525D/E format, e.g. `GHGPGLA-------X`)
+    - `points` — Control points as `lon,lat+lon,lat+…`
+    - `bbox` — Geographic bounding box as `minLon,minLat,maxLon,maxLat`
+    - `scale` — Map scale denominator (default: 50000)
+    - `width` — Viewport pixel width (default: 800)
+    - `height` — Viewport pixel height (default: 600)
+    - `format` — Output format: `geosvg` (default) or `geojson`
+    - `modifiers` — Modifier key:value pairs, e.g. `T:Alpha,H:area1`
+
+    ## Response:
+    SVG image (`image/svg+xml`) with embedded geographic anchor such that the
+    output can be placed on a map at the correct position and scale.
+
+    ## Example:
+    ```
+    GET /api/symbols/tactical?sidc=GHGPGLA-------X
+        &points=7.0,47.0+7.1,47.05+7.05,47.1
+        &bbox=6.9,46.95,7.2,47.15
+        &scale=50000
+    ```
+    """
+    milsymbol_url = os.getenv("MILSYMBOL_SERVER_URL", "http://localhost:2525")
+    # Forward all query params to the milsymbol-server /tactical endpoint
+    tactical_url = f"{milsymbol_url}/tactical"
+    # Rebuild the query string from incoming params (pass-through)
+    fwd_params = dict(request.query_params)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as _tc:
+            resp = await _tc.get(tactical_url, params=fwd_params)
+        ct = resp.headers.get("Content-Type", "image/svg+xml")
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=ct,
+            headers={
+                "Cache-Control": "public, max-age=3600",
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+    except Exception as _tac_exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Tactical graphic rendering failed: {_tac_exc}"
+        )
+
+
 @app.get("/api/symbols/{sidc_with_format}", tags=["symbols"])
 async def render_symbol(
     sidc_with_format: str,
@@ -1693,7 +1749,7 @@ async def validate_sidc_endpoint(sidc: str):
 
 # ==================== MILSYMB (MILITARY SYMBOL LAYERS) ENDPOINTS ====================
 
-@app.get("/api/projects/{project_name}/milsymb", tags=["milsymb"])
+@app.get("/api/projects/{project_name}/milsymb", tags=["symbols"])
 async def list_milsymb_layers(project_name: str):
     """
     # List military symbol layers
@@ -1724,7 +1780,7 @@ async def list_milsymb_layers(project_name: str):
     }
 
 
-@app.get("/api/projects/{project_name}/milsymb/{layer_name}.geojson", tags=["milsymb"])
+@app.get("/api/projects/{project_name}/milsymb/{layer_name}.geojson", tags=["symbols"])
 async def get_milsymb_layer_geojson(project_name: str, layer_name: str):
     """
     # Military Symbol Layer GeoJSON
@@ -1891,6 +1947,13 @@ async def _render_getprint_png(
     Overrides FORMAT → image/png and drops any SIZE-related constraints
     so QGIS Server computes the output size from the layout template + DPI.
     Returns raw PNG bytes.
+
+    TEMPLATE resolution:
+      1. Try the requested TEMPLATE as-is.
+      2. If QGIS returns "TEMPLATE parameter is invalid", fetch available
+         templates via GetProjectSettings and pick the closest match.
+      3. If GetProjectSettings itself fails (cold start / QGIS busy), fall
+         back to parsing QPT files directly from the cached .qgz on disk.
     """
     import httpx as _httpx
     import xml.etree.ElementTree as _ET
@@ -1899,27 +1962,48 @@ async def _render_getprint_png(
         return re.sub(r"[\s_\-]+", "", (name or "").strip().lower())
 
     async def _fetch_available_templates(_client: _httpx.AsyncClient, _base_params: dict) -> List[str]:
-        gps_params = {
-            "MAP": _base_params.get("MAP", ""),
-            "SERVICE": "WMS",
-            "VERSION": _base_params.get("VERSION", "1.3.0"),
-            "REQUEST": "GetProjectSettings",
-        }
-        resp = await _client.get(qgis_url, params=gps_params)
-        if resp.status_code != 200:
-            return []
-        try:
-            root = _ET.fromstring(resp.text)
-        except Exception:
-            return []
-
+        """Try GetProjectSettings first; fall back to QPT files in the .qgz."""
         templates: List[str] = []
-        for el in root.iter():
-            tag = el.tag.split('}')[-1] if '}' in el.tag else el.tag
-            if tag == "ComposerTemplate":
-                name = (el.get("name") or "").strip()
-                if name:
-                    templates.append(name)
+
+        # ── Primary: QGIS Server GetProjectSettings ───────────────────────
+        try:
+            gps_params = {
+                "MAP": _base_params.get("MAP", ""),
+                "SERVICE": "WMS",
+                "VERSION": _base_params.get("VERSION", "1.3.0"),
+                "REQUEST": "GetProjectSettings",
+            }
+            gps_resp = await _client.get(qgis_url, params=gps_params, timeout=30.0)
+            if gps_resp.status_code == 200:
+                root = _ET.fromstring(gps_resp.text)
+                for el in root.iter():
+                    tag = el.tag.split('}')[-1] if '}' in el.tag else el.tag
+                    if tag == "ComposerTemplate":
+                        name = (el.get("name") or "").strip()
+                        if name:
+                            templates.append(name)
+        except Exception as _gps_exc:
+            logger.debug("_fetch_available_templates: GetProjectSettings failed: %s", _gps_exc)
+
+        if templates:
+            return templates
+
+        # ── Fallback: parse QPT files directly from the .qgz on disk ────
+        map_path = _base_params.get("MAP", "")
+        if map_path:
+            try:
+                from services.qgz_parser import parse_print_layouts_from_bytes
+                qgz_bytes = Path(map_path).read_bytes()
+                layouts = parse_print_layouts_from_bytes(qgz_bytes)
+                templates = [lay["name"] for lay in layouts if lay.get("name")]
+                if templates:
+                    logger.info(
+                        "_fetch_available_templates: got %d template(s) from QPT fallback",
+                        len(templates),
+                    )
+            except Exception as _qpt_exc:
+                logger.debug("_fetch_available_templates: QPT fallback failed: %s", _qpt_exc)
+
         return templates
 
     def _choose_best_template(requested: str, available: List[str]) -> Optional[str]:
@@ -2362,45 +2446,53 @@ async def wms_proxy(project_name: str, request: Request):
 
         async with httpx.AsyncClient(timeout=120.0) as client:
 
-            # ── GetPrint PDF → PNG + Pillow PDF conversion ────────────────────
-            # QGIS Server's built-in PDF renderer requires a native Qt print
-            # driver that is unavailable in headless Docker containers, which
-            # causes corrupted or empty PDFs.  We intercept every GetPrint
-            # request that asks for PDF, re-render as PNG, and wrap it in a
-            # standards-compliant PDF using Pillow (already a dependency).
+            # ── GetPrint (all formats) → intercepted through _render_getprint_png ──
+            # This ensures the TEMPLATE-resolution fallback (GetProjectSettings →
+            # QPT files) is applied to EVERY GetPrint request, not only PDF ones.
+            # For PDF output we additionally convert the PNG via Pillow since QGIS
+            # Server's built-in Qt PDF driver is absent in headless Docker.
             _req_type = str(_qget(query_params, 'REQUEST', '') or '').upper()
             _req_fmt  = str(_qget(query_params, 'FORMAT', '') or '').lower()
-            if _req_type == 'GETPRINT' and 'pdf' in _req_fmt:
+            if _req_type == 'GETPRINT':
+                _is_pdf = 'pdf' in _req_fmt
                 try:
                     logger.info(
-                        f"WMS proxy: intercepting GetPrint PDF for '{project_name}' "
-                        f"— rendering as PNG then converting via Pillow"
+                        f"WMS proxy: intercepting GetPrint ({'PDF' if _is_pdf else 'PNG'}) "
+                        f"for '{project_name}' — using _render_getprint_png with "
+                        f"TEMPLATE auto-resolution"
                     )
                     _dpi = int(_qget(query_params, 'DPI', 300))
                     _png = await _render_getprint_png(qgis_server_url, query_params)
-                    _pdf = _png_bytes_to_pdf(_png, dpi=_dpi)
                     _tpl = re.sub(r'[^\w\-]', '_', str(_qget(query_params, 'TEMPLATE', 'print')))
-                    return Response(
-                        content=_pdf,
-                        status_code=200,
-                        headers={
-                            'Content-Type': 'application/pdf',
-                            'Content-Disposition':
-                                f'attachment; filename="{project_name}_{_tpl}.pdf"',
-                            'Access-Control-Allow-Origin': '*',
-                        },
-                    )
-                except Exception as _pdf_exc:
+                    if _is_pdf:
+                        _pdf = _png_bytes_to_pdf(_png, dpi=_dpi)
+                        return Response(
+                            content=_pdf,
+                            status_code=200,
+                            headers={
+                                'Content-Type': 'application/pdf',
+                                'Content-Disposition':
+                                    f'attachment; filename="{project_name}_{_tpl}.pdf"',
+                                'Access-Control-Allow-Origin': '*',
+                            },
+                        )
+                    else:
+                        return Response(
+                            content=_png,
+                            status_code=200,
+                            headers={
+                                'Content-Type': 'image/png',
+                                'Content-Disposition':
+                                    f'inline; filename="{project_name}_{_tpl}.png"',
+                                'Access-Control-Allow-Origin': '*',
+                            },
+                        )
+                except Exception as _print_exc:
                     logger.error(
-                        f"WMS proxy: GetPrint PDF conversion failed for "
-                        f"'{project_name}': {_pdf_exc}"
+                        f"WMS proxy: GetPrint failed for '{project_name}': {_print_exc}"
                     )
-                    # Do NOT fall through to the standard proxy path: QGIS Server's
-                    # built-in PDF renderer requires a Qt print driver that is absent
-                    # in headless Docker, which produces empty or corrupted PDFs.
-                    # Return a clear 502 so the client gets an actionable error instead.
                     return Response(
-                        content=f'Print failed for "{project_name}": {_pdf_exc}'.encode(),
+                        content=f'Print failed for "{project_name}": {_print_exc}'.encode(),
                         status_code=502,
                         headers={
                             'Content-Type': 'text/plain',
