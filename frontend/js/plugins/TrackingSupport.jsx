@@ -106,7 +106,8 @@ function makeDeviceStyle(pos, device, selected) {
 class TrackingSupport extends React.Component {
     static propTypes = {
         map: PropTypes.object,
-        projection: PropTypes.string
+        projection: PropTypes.string,
+        currentProject: PropTypes.string
     };
 
     constructor(props) {
@@ -119,6 +120,8 @@ class TrackingSupport extends React.Component {
         this._data = {};
         this._hiddenDevices = new Set();
         this._selectedDevice = null;
+        // device IDs linked to the active project (null = show all)
+        this._projectDeviceIds = null;
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -128,6 +131,20 @@ class TrackingSupport extends React.Component {
         this._connect();
         window.addEventListener('tracking-visibility-change', this._onVisibilityChange);
         window.addEventListener('tracking-focus-device', this._onFocusDevice);
+        if (this.props.currentProject) {
+            this._loadProjectAssoc(this.props.currentProject);
+        }
+    }
+
+    componentDidUpdate(prevProps) {
+        if (this.props.currentProject !== prevProps.currentProject) {
+            if (this.props.currentProject) {
+                this._loadProjectAssoc(this.props.currentProject);
+            } else {
+                this._projectDeviceIds = null;
+                this._refreshAllFeatures();
+            }
+        }
     }
 
     componentWillUnmount() {
@@ -137,6 +154,42 @@ class TrackingSupport extends React.Component {
         window.removeEventListener('tracking-visibility-change', this._onVisibilityChange);
         window.removeEventListener('tracking-focus-device', this._onFocusDevice);
     }
+
+    // ── Project-device association loader ─────────────────────────────────────
+
+    _loadProjectAssoc = async (projectName) => {
+        const base = (ConfigUtils.getConfigProp('dufourApiUrl') || window.location.origin)
+            .replace(/\/$/, '');
+        const token = window.__dufourJwt || localStorage.getItem('dufour_jwt') || '';
+        const headers = token ? {Authorization: `Bearer ${token}`} : {};
+        try {
+            const resp = await fetch(
+                `${base}/api/tracking/projects/${encodeURIComponent(projectName)}/devices`,
+                {headers}
+            );
+            if (!resp.ok) throw new Error('fetch failed');
+            const assocs = await resp.json();
+            if (this._unmounted || this.props.currentProject !== projectName) return;
+            // device_id entries are directly linked
+            // group-based associations: we can expand later via available data
+            const ids = new Set(
+                assocs.filter(a => a.device_id != null).map(a => a.device_id)
+            );
+            // also add devices whose group is linked
+            const linkedGroupIds = new Set(
+                assocs.filter(a => a.group_id != null).map(a => a.group_id)
+            );
+            if (linkedGroupIds.size > 0) {
+                Object.values(this._data).forEach(({device}) => {
+                    if (device && linkedGroupIds.has(device.groupId)) ids.add(device.id);
+                });
+            }
+            this._projectDeviceIds = ids.size > 0 ? ids : null;
+        } catch {
+            this._projectDeviceIds = null;
+        }
+        this._refreshAllFeatures();
+    };
 
     // ── OL layer ──────────────────────────────────────────────────────────────
 
@@ -306,7 +359,9 @@ class TrackingSupport extends React.Component {
         feat.set('pos', pos);
         feat.set('device', device);
 
-        const hidden = this._hiddenDevices.has(deviceId);
+        // Hide if explicitly hidden by user or filtered out by project
+        const hidden = this._hiddenDevices.has(deviceId)
+            || (this._projectDeviceIds !== null && !this._projectDeviceIds.has(deviceId));
         const selected = this._selectedDevice === deviceId;
 
         if (hidden) {
@@ -361,5 +416,7 @@ class TrackingSupport extends React.Component {
 }
 
 export default connect(
-    () => ({})
+    state => ({
+        currentProject: state.theme?.current?.name || null
+    })
 )(TrackingSupport);

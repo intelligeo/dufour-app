@@ -862,6 +862,450 @@ function AdminProjects() {
 }
 
 // ---------------------------------------------------------------------------
+// AdminFleet – gestione fleet Traccar embeddednel pannello admin
+// Sub-tab: Dispositivi | Flotte | Assegnazione Progetti
+// ---------------------------------------------------------------------------
+
+const DEVICE_CATEGORIES = [
+    'default','car','truck','van','bus','motorcycle','bicycle',
+    'pedestrian','animal','helicopter','ship','train','tractor','arrow',
+];
+
+function DeviceModal({device, groups, onSave, onClose}) {
+    const {t} = useI18n();
+    const editing = Boolean(device && device.id);
+    const [form, setForm] = useState({
+        name: device?.name || '',
+        uniqueId: device?.uniqueId || '',
+        groupId: device?.groupId || '',
+        category: device?.category || 'default',
+        phone: device?.phone || '',
+        model: device?.model || '',
+    });
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+
+    async function handleSave() {
+        if (!form.name.trim() || !form.uniqueId.trim()) {
+            setErr('Name and identifier are required'); return;
+        }
+        setBusy(true); setErr('');
+        const payload = {...form, groupId: form.groupId ? Number(form.groupId) : null};
+        try {
+            if (editing) {
+                await apiFetch(`/api/tracking/devices/${device.id}`, {
+                    method: 'PUT', body: JSON.stringify(payload),
+                });
+            } else {
+                await apiFetch('/api/tracking/devices', {
+                    method: 'POST', body: JSON.stringify(payload),
+                });
+            }
+            onSave();
+        } catch (ex) { setErr(ex.message); }
+        finally { setBusy(false); }
+    }
+
+    const inp = (key, label, ph) => (
+        <div key={key}>
+            <label style={S.label}>{label}</label>
+            <input style={S.input} value={form[key]} placeholder={ph || ''}
+                   onChange={e => setForm(f => ({...f, [key]: e.target.value}))} />
+        </div>
+    );
+
+    return (
+        <Modal title={editing ? t('fleet.modal.device.edit') : t('fleet.modal.device.new')} onClose={onClose}>
+            {inp('name', t('fleet.modal.device.name'), 'es. Veicolo Alpha')}
+            {inp('uniqueId', t('fleet.modal.device.id'), 'IMEI / Device ID OsmAnd')}
+            <label style={S.label}>{t('fleet.modal.device.group')}</label>
+            <select style={S.input} value={form.groupId || ''}
+                    onChange={e => setForm(f => ({...f, groupId: e.target.value}))}>
+                <option value="">—</option>
+                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+            <label style={S.label}>{t('fleet.modal.device.cat')}</label>
+            <select style={S.input} value={form.category}
+                    onChange={e => setForm(f => ({...f, category: e.target.value}))}>
+                {DEVICE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {inp('phone', t('fleet.modal.device.phone'))}
+            {inp('model', t('fleet.modal.device.model'))}
+            {err && <div style={S.error}>{err}</div>}
+            <div style={{display:'flex', gap:8, justifyContent:'flex-end', marginTop:12}}>
+                <Btn style={S.btnSecondary} onClick={onClose} disabled={busy}>{t('fleet.modal.cancel')}</Btn>
+                <Btn style={S.btnPrimary} onClick={handleSave} disabled={busy}>
+                    {busy ? t('fleet.modal.saving') : t('fleet.modal.save')}
+                </Btn>
+            </div>
+        </Modal>
+    );
+}
+
+function GroupModal({group, onSave, onClose}) {
+    const {t} = useI18n();
+    const editing = Boolean(group && group.id);
+    const [name, setName] = useState(group?.name || '');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+
+    async function handleSave() {
+        if (!name.trim()) { setErr('Name required'); return; }
+        setBusy(true); setErr('');
+        try {
+            if (editing) {
+                await apiFetch(`/api/tracking/groups/${group.id}`, {
+                    method: 'PUT', body: JSON.stringify({name}),
+                });
+            } else {
+                await apiFetch('/api/tracking/groups', {
+                    method: 'POST', body: JSON.stringify({name}),
+                });
+            }
+            onSave();
+        } catch (ex) { setErr(ex.message); }
+        finally { setBusy(false); }
+    }
+
+    return (
+        <Modal title={editing ? t('fleet.modal.group.edit') : t('fleet.modal.group.new')} onClose={onClose}>
+            <label style={S.label}>{t('fleet.modal.group.name')}</label>
+            <input style={S.input} value={name} onChange={e => setName(e.target.value)} autoFocus />
+            {err && <div style={S.error}>{err}</div>}
+            <div style={{display:'flex', gap:8, justifyContent:'flex-end', marginTop:12}}>
+                <Btn style={S.btnSecondary} onClick={onClose} disabled={busy}>{t('fleet.modal.cancel')}</Btn>
+                <Btn style={S.btnPrimary} onClick={handleSave} disabled={busy}>
+                    {busy ? t('fleet.modal.saving') : t('fleet.modal.save')}
+                </Btn>
+            </div>
+        </Modal>
+    );
+}
+
+function StatusDot({status}) {
+    const color = status === 'online' ? '#4ade80' : status === 'offline' ? '#f87171' : '#9ba3af';
+    return (
+        <span style={{
+            display:'inline-block', width:8, height:8, borderRadius:'50%',
+            background: color, marginRight:6, verticalAlign:'middle',
+        }} />
+    );
+}
+
+function FleetDevices({groups}) {
+    const {t} = useI18n();
+    const [devices, setDevices] = useState([]);
+    const [busy, setBusy]         = useState(true);
+    const [modal, setModal]       = useState(null);   // null | 'create' | device
+
+    const groupsById = Object.fromEntries(groups.map(g => [g.id, g]));
+
+    async function load() {
+        setBusy(true);
+        try { setDevices(await apiFetch('/api/tracking/devices')); }
+        catch {}
+        finally { setBusy(false); }
+    }
+
+    useEffect(() => { load(); }, []);
+
+    async function deleteDevice(d) {
+        if (!confirm(t('fleet.devices.confirm', {name: d.name}))) return;
+        try {
+            await apiFetch(`/api/tracking/devices/${d.id}`, {method: 'DELETE'});
+            load();
+        } catch (ex) { alert(ex.message); }
+    }
+
+    function closeAndReload() { setModal(null); load(); }
+
+    const cols = [
+        t('fleet.devices.col.name'), t('fleet.devices.col.id'), t('fleet.devices.col.group'),
+        t('fleet.devices.col.status'), t('fleet.devices.col.last'), t('fleet.devices.col.actions'),
+    ];
+
+    return (
+        <div>
+            <div style={{padding:'16px 24px 0', display:'flex', justifyContent:'flex-end'}}>
+                <Btn style={S.btnPrimary} onClick={() => setModal('create')}>{t('fleet.devices.new')}</Btn>
+            </div>
+            <div style={S.tableWrap}>
+                <table style={S.table}>
+                    <thead>
+                        <tr>{cols.map(h => <th key={h} style={S.th}>{h}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                        {busy && <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>{t('loading')}</td></tr>}
+                        {!busy && devices.map(d => (
+                            <tr key={d.id}>
+                                <td style={S.td}><strong>{d.name}</strong></td>
+                                <td style={{...S.td, fontFamily:'monospace', fontSize:12}}>{d.uniqueId}</td>
+                                <td style={S.td}>{d.groupId ? (groupsById[d.groupId]?.name || d.groupId) : '—'}</td>
+                                <td style={S.td}>
+                                    <StatusDot status={d.status} />
+                                    {d.status === 'online' ? t('fleet.status.online') :
+                                     d.status === 'offline' ? t('fleet.status.offline') : t('fleet.status.unknown')}
+                                </td>
+                                <td style={S.td}>{d.lastUpdate ? new Date(d.lastUpdate).toLocaleString() : '—'}</td>
+                                <td style={S.td}>
+                                    <Btn style={{...S.btnSecondary, ...S.btnSmall, marginRight:6}}
+                                         onClick={() => setModal(d)}>{t('fleet.devices.edit')}</Btn>
+                                    <Btn style={{...S.btnDanger, ...S.btnSmall}}
+                                         onClick={() => deleteDevice(d)}>{t('fleet.devices.delete')}</Btn>
+                                </td>
+                            </tr>
+                        ))}
+                        {!busy && devices.length === 0 && (
+                            <tr><td colSpan={6} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>—</td></tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+            {modal === 'create' && <DeviceModal groups={groups} onSave={closeAndReload} onClose={() => setModal(null)} />}
+            {modal && modal !== 'create' && (
+                <DeviceModal device={modal} groups={groups} onSave={closeAndReload} onClose={() => setModal(null)} />
+            )}
+        </div>
+    );
+}
+
+function FleetGroups() {
+    const {t} = useI18n();
+    const [groups, setGroups] = useState([]);
+    const [busy, setBusy]       = useState(true);
+    const [modal, setModal]     = useState(null);
+
+    async function load() {
+        setBusy(true);
+        try { setGroups(await apiFetch('/api/tracking/groups')); }
+        catch {}
+        finally { setBusy(false); }
+    }
+
+    useEffect(() => { load(); }, []);
+
+    async function deleteGroup(g) {
+        if (!confirm(t('fleet.groups.confirm', {name: g.name}))) return;
+        try {
+            await apiFetch(`/api/tracking/groups/${g.id}`, {method: 'DELETE'});
+            load();
+        } catch (ex) { alert(ex.message); }
+    }
+
+    return (
+        <div>
+            <div style={{padding:'16px 24px 0', display:'flex', justifyContent:'flex-end'}}>
+                <Btn style={S.btnPrimary} onClick={() => setModal('create')}>{t('fleet.groups.new')}</Btn>
+            </div>
+            <div style={S.tableWrap}>
+                <table style={S.table}>
+                    <thead>
+                        <tr>
+                            {[t('fleet.groups.col.name'), t('fleet.groups.col.actions')].map(h =>
+                                <th key={h} style={S.th}>{h}</th>)}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {busy && <tr><td colSpan={2} style={{...S.td, color:'#9ba3af', textAlign:'center'}}>{t('loading')}</td></tr>}
+                        {!busy && groups.map(g => (
+                            <tr key={g.id}>
+                                <td style={S.td}><strong>{g.name}</strong></td>
+                                <td style={S.td}>
+                                    <Btn style={{...S.btnSecondary, ...S.btnSmall, marginRight:6}}
+                                         onClick={() => setModal(g)}>{t('fleet.groups.edit')}</Btn>
+                                    <Btn style={{...S.btnDanger, ...S.btnSmall}}
+                                         onClick={() => deleteGroup(g)}>{t('fleet.groups.delete')}</Btn>
+                                </td>
+                            </tr>
+                        ))}
+                        {!busy && groups.length === 0 && (
+                            <tr><td colSpan={2} style={{...S.td, textAlign:'center', color:'#9ba3af'}}>—</td></tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+            {modal === 'create' && <GroupModal onSave={() => { setModal(null); load(); }} onClose={() => setModal(null)} />}
+            {modal && modal !== 'create' && (
+                <GroupModal group={modal} onSave={() => { setModal(null); load(); }} onClose={() => setModal(null)} />
+            )}
+        </div>
+    );
+}
+
+function FleetProjects() {
+    const {t} = useI18n();
+    const [projects, setProjects]     = useState([]);
+    const [devices, setDevices]       = useState([]);
+    const [groups, setGroups]         = useState([]);
+    const [selected, setSelected]     = useState('');
+    const [associations, setAssoc]    = useState([]);
+    const [loadingAssoc, setLoadAssoc]= useState(false);
+    const [chooser, setChooser]       = useState(null);   // 'device' | 'group'
+    const [chooserVal, setChooserVal] = useState('');
+
+    useEffect(() => {
+        Promise.all([
+            apiFetch('/api/admin/projects').catch(() => []),
+            apiFetch('/api/tracking/devices').catch(() => []),
+            apiFetch('/api/tracking/groups').catch(() => []),
+        ]).then(([p, d, g]) => { setProjects(p); setDevices(d); setGroups(g); });
+    }, []);
+
+    useEffect(() => {
+        if (!selected) { setAssoc([]); return; }
+        setLoadAssoc(true);
+        apiFetch(`/api/tracking/projects/${encodeURIComponent(selected)}/devices`)
+            .then(a => setAssoc(a))
+            .catch(() => setAssoc([]))
+            .finally(() => setLoadAssoc(false));
+    }, [selected]);
+
+    async function removeAssoc(entryId) {
+        try {
+            await apiFetch(
+                `/api/tracking/projects/${encodeURIComponent(selected)}/devices/${entryId}`,
+                {method: 'DELETE'}
+            );
+            setAssoc(prev => prev.filter(a => a.id !== entryId));
+        } catch (ex) { alert(ex.message); }
+    }
+
+    async function addAssoc() {
+        if (!chooserVal) return;
+        const body = chooser === 'device'
+            ? {device_id: Number(chooserVal)}
+            : {group_id: Number(chooserVal)};
+        try {
+            const entry = await apiFetch(
+                `/api/tracking/projects/${encodeURIComponent(selected)}/devices`,
+                {method: 'POST', body: JSON.stringify(body)}
+            );
+            // refetch to get enriched names
+            const updated = await apiFetch(`/api/tracking/projects/${encodeURIComponent(selected)}/devices`);
+            setAssoc(updated);
+        } catch (ex) { alert(ex.message); }
+        setChooser(null); setChooserVal('');
+    }
+
+    const typeLabel = (a) => a.type === 'device' ? t('fleet.projects.type.device') : t('fleet.projects.type.group');
+
+    return (
+        <div style={{padding:24}}>
+            <p style={{color:'#9ba3af', fontSize:13, marginTop:0}}>{t('fleet.projects.desc')}</p>
+
+            <label style={S.label}>{t('fleet.projects.select')}</label>
+            <select style={{...S.input, width:320}}
+                    value={selected} onChange={e => setSelected(e.target.value)}>
+                <option value="">—</option>
+                {projects.map(p => <option key={p.name} value={p.name}>{p.title || p.name}</option>)}
+            </select>
+
+            {selected && (
+                <div style={{marginTop:20}}>
+                    <div style={{display:'flex', gap:8, marginBottom:12}}>
+                        <Btn style={S.btnSecondary} onClick={() => { setChooser('device'); setChooserVal(''); }}>
+                            {t('fleet.projects.add_device')}
+                        </Btn>
+                        <Btn style={S.btnSecondary} onClick={() => { setChooser('group'); setChooserVal(''); }}>
+                            {t('fleet.projects.add_group')}
+                        </Btn>
+                    </div>
+
+                    {chooser && (
+                        <div style={{display:'flex', gap:8, marginBottom:12, alignItems:'center'}}>
+                            <select style={{...S.input, width:260, marginBottom:0}}
+                                    value={chooserVal} onChange={e => setChooserVal(e.target.value)}>
+                                <option value="">—</option>
+                                {chooser === 'device'
+                                    ? devices.map(d => <option key={d.id} value={d.id}>{d.name} ({d.uniqueId})</option>)
+                                    : groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)
+                                }
+                            </select>
+                            <Btn style={S.btnPrimary} onClick={addAssoc} disabled={!chooserVal}>
+                                {t('fleet.chooser.add')}
+                            </Btn>
+                            <Btn style={S.btnSecondary} onClick={() => setChooser(null)}>✕</Btn>
+                        </div>
+                    )}
+
+                    {loadingAssoc && <div style={{color:'#9ba3af', fontSize:13}}>{t('loading')}</div>}
+                    {!loadingAssoc && associations.length === 0 && (
+                        <div style={{color:'#9ba3af', fontSize:13}}>{t('fleet.projects.empty')}</div>
+                    )}
+                    {!loadingAssoc && associations.length > 0 && (
+                        <div style={S.tableWrap}>
+                            <table style={S.table}>
+                                <thead>
+                                    <tr>
+                                        <th style={S.th}>Tipo</th>
+                                        <th style={S.th}>Nome</th>
+                                        <th style={S.th}></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {associations.map(a => (
+                                        <tr key={a.id}>
+                                            <td style={S.td}>
+                                                <span style={{...S.badge,
+                                                    background: a.type==='device'?'#1e3a5f':'#2d3b2e',
+                                                    color: a.type==='device'?'#7cb9e8':'#4ade80'}}>
+                                                    {typeLabel(a)}
+                                                </span>
+                                            </td>
+                                            <td style={S.td}>{a.name}</td>
+                                            <td style={S.td}>
+                                                <Btn style={{...S.btnDanger, ...S.btnSmall}}
+                                                     onClick={() => removeAssoc(a.id)}>
+                                                    {t('fleet.projects.remove')}
+                                                </Btn>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function AdminFleet() {
+    const {t} = useI18n();
+    const [sub, setSub] = useState('devices');
+    const [groups, setGroups] = useState([]);
+
+    // Load groups once for the devices sub-tab (needs group list for select)
+    useEffect(() => {
+        apiFetch('/api/tracking/groups').then(setGroups).catch(() => {});
+    }, []);
+
+    const subTabs = [
+        ['devices',  t('fleet.sub.devices')],
+        ['groups',   t('fleet.sub.groups')],
+        ['projects', t('fleet.sub.projects')],
+    ];
+
+    return (
+        <div>
+            <div style={{...S.tabs, margin:'0 24px', paddingLeft:0}}>
+                {subTabs.map(([key, label]) => (
+                    <div key={key}
+                         style={{...S.tab, ...(sub===key ? S.tabActive : {}), fontSize:13}}
+                         onClick={() => setSub(key)}>
+                        {label}
+                    </div>
+                ))}
+            </div>
+            {sub === 'devices'  && <FleetDevices groups={groups} />}
+            {sub === 'groups'   && <FleetGroups />}
+            {sub === 'projects' && <FleetProjects />}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
 // AdminDashboard
 // ---------------------------------------------------------------------------
 function AdminDashboard() {
@@ -871,13 +1315,14 @@ function AdminDashboard() {
     return (
         <div style={{flex: 1}}>
             <div style={S.tabs}>
-                {[['users', t('tabs.users')],['projects', t('tabs.projects')]].map(([key, label]) => (
+                {[['users', t('tabs.users')],['projects', t('tabs.projects')],['fleet', t('tabs.fleet')]].map(([key, label]) => (
                     <div key={key} style={{...S.tab, ...(tab===key ? S.tabActive : {})}}
                          onClick={() => setTab(key)}>{label}</div>
                 ))}
             </div>
             {tab === 'users'    && <AdminUsers    />}
             {tab === 'projects' && <AdminProjects />}
+            {tab === 'fleet'    && <AdminFleet    />}
         </div>
     );
 }

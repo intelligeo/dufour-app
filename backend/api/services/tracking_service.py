@@ -314,17 +314,170 @@ def position_to_geojson_feature(pos: Dict, device: Optional[Dict] = None) -> Dic
     }
 
 
-async def positions_as_geojson() -> Dict:
-    """Return a GeoJSON FeatureCollection with current positions for all devices."""
+async def positions_as_geojson(project_name: Optional[str] = None) -> Dict:
+    """
+    Return a GeoJSON FeatureCollection with current positions.
+
+    If *project_name* is provided only positions belonging to devices (or
+    groups) linked to that project via the ``project_tracking`` table are
+    included.  Otherwise all known positions are returned.
+    """
     positions = await get_latest_positions()
     devices_list = await list_devices()
     devices_by_id = {d["id"]: d for d in devices_list}
 
+    # Optionally filter by project association
+    allowed_ids: Optional[set] = None
+    if project_name:
+        allowed_ids = await get_device_ids_for_project(project_name)
+
     features = [
         position_to_geojson_feature(pos, devices_by_id.get(pos["deviceId"]))
         for pos in positions.values()
+        if allowed_ids is None or pos["deviceId"] in allowed_ids
     ]
     return {
         "type": "FeatureCollection",
         "features": features
     }
+
+
+# ── Project ↔ Traccar device/group associations ────────────────────────────────
+
+async def get_device_ids_for_project(project_name: str) -> set:
+    """
+    Resolve all Traccar device IDs associated with a project.
+
+    Includes:
+    - directly linked device_id entries
+    - all devices that belong to a linked group_id (fetched from Traccar)
+    """
+    from database.connection import db
+    from sqlalchemy import text
+
+    async with db.get_async_engine().connect() as conn:
+        rows = await conn.execute(text("""
+            SELECT pt.device_id, pt.group_id
+            FROM project_tracking pt
+            JOIN projects p ON p.id = pt.project_id
+            WHERE p.name = :name
+        """), {"name": project_name})
+        entries = rows.fetchall()
+
+    device_ids: set = set()
+    group_ids: set = set()
+    for row in entries:
+        if row.device_id is not None:
+            device_ids.add(row.device_id)
+        if row.group_id is not None:
+            group_ids.add(row.group_id)
+
+    # Expand group IDs → device IDs via Traccar
+    if group_ids:
+        try:
+            all_devices = await list_devices()
+            for dev in all_devices:
+                if dev.get("groupId") in group_ids:
+                    device_ids.add(dev["id"])
+        except Exception as exc:
+            logger.warning("Could not fetch devices for group expansion: %s", exc)
+
+    return device_ids
+
+
+async def list_project_tracking(project_name: str) -> List[Dict]:
+    """Return all project_tracking entries for a project (with resolved device/group names)."""
+    from database.connection import db
+    from sqlalchemy import text
+
+    async with db.get_async_engine().connect() as conn:
+        rows = await conn.execute(text("""
+            SELECT pt.id, pt.device_id, pt.group_id, pt.created_at
+            FROM project_tracking pt
+            JOIN projects p ON p.id = pt.project_id
+            WHERE p.name = :name
+            ORDER BY pt.created_at
+        """), {"name": project_name})
+        entries = [dict(r._mapping) for r in rows.fetchall()]
+
+    if not entries:
+        return []
+
+    # Enrich with names from Traccar
+    try:
+        devices_by_id = {d["id"]: d for d in await list_devices()}
+        groups_by_id  = {g["id"]: g for g in await list_groups()}
+    except Exception:
+        devices_by_id, groups_by_id = {}, {}
+
+    result = []
+    for e in entries:
+        item: Dict = {
+            "id":         str(e["id"]),
+            "device_id":  e["device_id"],
+            "group_id":   e["group_id"],
+            "created_at": e["created_at"].isoformat() if e["created_at"] else None,
+        }
+        if e["device_id"] is not None:
+            dev = devices_by_id.get(e["device_id"])
+            item["name"] = dev["name"] if dev else f"Device {e['device_id']}"
+            item["type"] = "device"
+        else:
+            grp = groups_by_id.get(e["group_id"])
+            item["name"] = grp["name"] if grp else f"Group {e['group_id']}"
+            item["type"] = "group"
+        result.append(item)
+    return result
+
+
+async def add_project_tracking(project_name: str,
+                                device_id: Optional[int],
+                                group_id: Optional[int]) -> Dict:
+    """Link a Traccar device or group to a project.  Returns the new entry."""
+    from database.connection import db
+    from sqlalchemy import text
+
+    async with db.get_async_engine().connect() as conn:
+        row = await conn.execute(text(
+            "SELECT id FROM projects WHERE name = :name"
+        ), {"name": project_name})
+        project = row.fetchone()
+        if not project:
+            raise ValueError(f"Project '{project_name}' not found")
+
+        new_row = await conn.execute(text("""
+            INSERT INTO project_tracking (project_id, device_id, group_id)
+            VALUES (:pid, :did, :gid)
+            ON CONFLICT DO NOTHING
+            RETURNING id, device_id, group_id, created_at
+        """), {"pid": project.id, "did": device_id, "gid": group_id})
+        await conn.commit()
+        inserted = new_row.fetchone()
+
+    if not inserted:
+        raise ValueError("Association already exists")
+
+    return {
+        "id": str(inserted.id),
+        "device_id": inserted.device_id,
+        "group_id": inserted.group_id,
+        "created_at": inserted.created_at.isoformat() if inserted.created_at else None,
+    }
+
+
+async def remove_project_tracking(project_name: str, entry_id: str) -> None:
+    """Remove a project_tracking entry by its UUID."""
+    from database.connection import db
+    from sqlalchemy import text
+
+    async with db.get_async_engine().connect() as conn:
+        result = await conn.execute(text("""
+            DELETE FROM project_tracking pt
+            USING projects p
+            WHERE pt.project_id = p.id
+              AND p.name = :project_name
+              AND pt.id = :entry_id
+        """), {"project_name": project_name, "entry_id": entry_id})
+        await conn.commit()
+        if result.rowcount == 0:
+            raise ValueError(f"Entry {entry_id} not found for project '{project_name}'")

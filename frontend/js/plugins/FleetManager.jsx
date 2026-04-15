@@ -83,7 +83,8 @@ class FleetManager extends React.Component {
     static propTypes = {
         active: PropTypes.bool,
         setCurrentTask: PropTypes.func,
-        side: PropTypes.string
+        side: PropTypes.string,
+        currentProject: PropTypes.string
     };
 
     static defaultProps = {
@@ -100,6 +101,9 @@ class FleetManager extends React.Component {
             selectedGroup: null,     // filter by group
             loading: false,
             error: null,
+            // Project filter
+            projectDeviceIds: null,  // Set<number> | null – IDs linked to current project
+            filterProject: false,    // when true, show only project-linked devices
             // Modal state
             modal: null,             // null | 'new-group' | 'edit-group' | 'new-device' | 'edit-device'
             modalData: {},
@@ -150,6 +154,29 @@ class FleetManager extends React.Component {
             this.setState({groups: groups || [], devices: devices || [], positions: posMap, loading: false});
         } catch (err) {
             this.setState({error: err.message, loading: false});
+        }
+        // Load project associations if a project is active
+        await this._loadProjectAssoc();
+    };
+
+    _loadProjectAssoc = async () => {
+        const proj = this.props.currentProject;
+        if (!proj) { this.setState({projectDeviceIds: null}); return; }
+        try {
+            const assocs = await apiFetch(
+                `/api/tracking/projects/${encodeURIComponent(proj)}/devices`
+            );
+            const ids = new Set(assocs.map(a => a.device_id).filter(Boolean));
+            // expand group associations
+            const groupIds = new Set(assocs.map(a => a.group_id).filter(Boolean));
+            if (groupIds.size > 0) {
+                this.state.devices.forEach(d => {
+                    if (groupIds.has(d.groupId)) ids.add(d.id);
+                });
+            }
+            this.setState({projectDeviceIds: ids});
+        } catch {
+            this.setState({projectDeviceIds: null});
         }
     };
 
@@ -297,10 +324,14 @@ class FleetManager extends React.Component {
     }
 
     _renderDeviceList() {
-        const {devices, positions, hiddenDevices, selectedGroup} = this.state;
-        const visible = devices.filter(d =>
+        const {devices, positions, hiddenDevices, selectedGroup,
+               projectDeviceIds, filterProject} = this.state;
+        let visible = devices.filter(d =>
             selectedGroup === null || d.groupId === selectedGroup
         );
+        if (filterProject && projectDeviceIds) {
+            visible = visible.filter(d => projectDeviceIds.has(d.id));
+        }
 
         if (!visible.length) {
             return <p className="fm-empty">No devices in this fleet.</p>;
@@ -311,6 +342,7 @@ class FleetManager extends React.Component {
                 {visible.map(d => {
                     const pos = positions[d.id];
                     const isHidden = hiddenDevices.has(d.id);
+                    const isLinked = projectDeviceIds && projectDeviceIds.has(d.id);
                     const statusCls = d.status === 'online' ? 'fm-status-online'
                         : d.status === 'unknown' ? 'fm-status-unknown'
                             : 'fm-status-offline';
@@ -320,6 +352,13 @@ class FleetManager extends React.Component {
                             <div className="fm-device-header">
                                 <span className={`fm-dot ${statusCls}`} title={d.status || 'unknown'} />
                                 <span className="fm-device-name">{d.name}</span>
+                                {isLinked && (
+                                    <span title="Linked to active project"
+                                          style={{fontSize:10, background:'#1e3a5f', color:'#7cb9e8',
+                                                  borderRadius:4, padding:'1px 5px', marginLeft:4}}>
+                                        📌
+                                    </span>
+                                )}
                                 <span className="fm-device-id">#{d.uniqueId}</span>
                                 <div className="fm-device-actions">
                                     <button
@@ -506,7 +545,17 @@ class FleetManager extends React.Component {
                 {/* ── Devices section ── */}
                 <div className="fm-section-header">
                     <span>Devices</span>
-                    <div style={{display: 'flex', gap: '4px'}}>
+                    <div style={{display: 'flex', gap: '4px', alignItems: 'center'}}>
+                        {this.props.currentProject && (
+                            <button
+                                className={`fm-chip ${this.state.filterProject ? 'active' : ''}`}
+                                title={this.state.filterProject
+                                    ? 'Show all devices'
+                                    : `Show only "${this.props.currentProject}" devices`}
+                                onClick={() => this.setState(s => ({filterProject: !s.filterProject}))}>
+                                📌 {this.props.currentProject}
+                            </button>
+                        )}
                         {loading && <span className="fm-spinner" />}
                         <button className="fm-btn fm-btn-xs fm-btn-secondary"
                             onClick={this._load} title="Refresh now">↻</button>
@@ -537,7 +586,8 @@ class FleetManager extends React.Component {
 
 export default connect(
     state => ({
-        active: state.task?.id === 'FleetManager'
+        active: state.task?.id === 'FleetManager',
+        currentProject: state.theme?.current?.name || null
     }),
     {setCurrentTask}
 )(FleetManager);

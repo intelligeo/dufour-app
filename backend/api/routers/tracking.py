@@ -172,14 +172,21 @@ async def get_positions(
 
 
 @router.get("/positions/geojson", summary="Current positions as GeoJSON FeatureCollection")
-async def get_positions_geojson(_user=Depends(get_current_user)):
+async def get_positions_geojson(
+    project: Optional[str] = Query(None,
+                                   description="Filter positions to devices/groups linked to this project name"),
+    _user=Depends(get_current_user)
+):
     """
     Returns a GeoJSON FeatureCollection suitable for direct consumption by
     an OpenLayers VectorLayer. Each feature carries speed, course, altitude,
     device name and other tracking attributes as properties.
+
+    Pass ``?project=<name>`` to restrict output to devices associated with
+    a specific project via the ``project_tracking`` table.
     """
     try:
-        return await ts.positions_as_geojson()
+        return await ts.positions_as_geojson(project_name=project)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Traccar error: {exc}") from exc
 
@@ -209,6 +216,60 @@ async def get_geofences(_user=Depends(get_current_user)):
         return await ts.list_geofences()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Traccar error: {exc}") from exc
+
+
+class ProjectTrackingCreate(BaseModel):
+    device_id: Optional[int] = None
+    group_id: Optional[int] = None
+
+
+# ── Project ↔ Device / Group association endpoints ────────────────────────────
+
+@router.get("/projects/{project_name}/devices",
+            summary="List Traccar device/group associations for a project")
+async def list_project_tracking(project_name: str, _user=Depends(get_current_user)):
+    try:
+        return await ts.list_project_tracking(project_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/projects/{project_name}/devices",
+             summary="Link a Traccar device or group to a project",
+             status_code=201)
+async def add_project_tracking(
+    project_name: str,
+    body: ProjectTrackingCreate,
+    _user=Depends(get_current_user)
+):
+    if body.device_id is None and body.group_id is None:
+        raise HTTPException(status_code=422, detail="Provide either device_id or group_id")
+    if body.device_id is not None and body.group_id is not None:
+        raise HTTPException(status_code=422, detail="Provide device_id OR group_id, not both")
+    try:
+        return await ts.add_project_tracking(project_name, body.device_id, body.group_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.delete("/projects/{project_name}/devices/{entry_id}",
+               summary="Remove a Traccar device/group association from a project",
+               status_code=204)
+async def remove_project_tracking(
+    project_name: str,
+    entry_id: str,
+    _user=Depends(get_current_user)
+):
+    try:
+        await ts.remove_project_tracking(project_name, entry_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 # ── Real-time WebSocket ────────────────────────────────────────────────────────

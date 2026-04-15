@@ -115,6 +115,33 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 );
 
 -- ============================================================
+-- Project-Tracking associations
+-- Links Traccar device IDs (or group IDs) to Dufour projects.
+-- Only positions belonging to linked devices are shown on the
+-- project map when the project filter is active.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS project_tracking (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    device_id   INTEGER,           -- Traccar device id  (NULL when group_id is set)
+    group_id    INTEGER,           -- Traccar group id   (NULL when device_id is set)
+    created_at  TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT project_tracking_device_or_group CHECK (
+        (device_id IS NOT NULL AND group_id IS NULL) OR
+        (device_id IS NULL     AND group_id IS NOT NULL)
+    )
+);
+
+-- Prevent duplicate entries for the same project/device or project/group
+CREATE UNIQUE INDEX IF NOT EXISTS uq_project_tracking_device
+    ON project_tracking(project_id, device_id)
+    WHERE device_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_project_tracking_group
+    ON project_tracking(project_id, group_id)
+    WHERE group_id IS NOT NULL;
+
+-- ============================================================
 -- Indexes
 -- ============================================================
 CREATE INDEX IF NOT EXISTS idx_projects_name ON projects(name);
