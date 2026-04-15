@@ -79,7 +79,7 @@ services:
       #   4. Open ports 8082, 5055, 5001, 5013, 5006, 10001 in VPS firewall
       #   5. Set TRACCAR_URL below to http://traccar.intelligeo.net:8082
       - key: TRACCAR_URL
-        value: "http://localhost:8082"
+        value: "http://traccar.intelligeo.net:8082"
       - key: TRACCAR_USER
         value: "admin"
       - key: TRACCAR_PASSWORD
