@@ -149,6 +149,10 @@ JWT bearer tokens via `/api/auth/login`. Admin endpoints require the `admin` rol
         {
             "name": "editing",
             "description": "QWC2 Editing API — WFS-T via REST → PostGIS. Dataset path: {project}/{lyr_table}."
+        },
+        {
+            "name": "tracking",
+            "description": "Live GNSS tracking — Traccar proxy, fleet/device management, real-time WebSocket position stream"
         }
     ],
     swagger_ui_parameters={
@@ -182,6 +186,9 @@ app.add_middleware(
 from routers.editing import router as editing_router
 app.include_router(editing_router)
 
+from routers.tracking import router as tracking_router
+app.include_router(tracking_router)
+
 # Initialize services
 project_service = ProjectService()
 data_service = DataService()
@@ -193,6 +200,25 @@ project_migrator = ProjectMigrator()
 # DB migration on startup — apply ALTER TABLE for new columns idempotently
 # so the app works even if init_schema.py was not re-run on an existing DB.
 # ---------------------------------------------------------------------------
+@app.on_event("startup")
+async def start_tracking_listener():
+    """Start the Traccar WebSocket listener in the background."""
+    import os
+    if os.getenv("TRACCAR_URL"):
+        from services.tracking_service import start_ws_listener
+        start_ws_listener()
+        logger.info("Traccar WebSocket listener started")
+    else:
+        logger.info("TRACCAR_URL not set – tracking WebSocket listener skipped")
+
+
+@app.on_event("shutdown")
+async def stop_tracking_listener():
+    """Stop the Traccar WebSocket listener gracefully."""
+    from services.tracking_service import stop_ws_listener
+    stop_ws_listener()
+
+
 @app.on_event("startup")
 async def run_db_migrations():
     """Apply incremental DB migrations at startup (idempotent ALTER TABLE)."""

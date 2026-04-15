@@ -73,6 +73,8 @@ import {customAttributeCalculator, attributeTransform, customExporters} from './
 import CustomEditingInterface from './CustomEditingInterface';
 import MilSymbSizeSlider from './plugins/MilSymbSizeSlider';
 import MilSymbSupport from './plugins/MilSymbSupport';
+import FleetManager from './plugins/FleetManager';
+import TrackingSupport from './plugins/TrackingSupport';
 import CoordinatesUtils from 'qwc2/utils/CoordinatesUtils';
 import LocaleUtils from 'qwc2/utils/LocaleUtils';
 
@@ -246,7 +248,8 @@ export default {
                 RedliningPickSupport: RedliningPickSupport,
                 RedliningSupport: RedliningSupport,
                 SnappingSupport: SnappingSupport,
-                MilSymbSupport: MilSymbSupport
+                MilSymbSupport: MilSymbSupport,
+                TrackingSupport: TrackingSupport
             }),
             APIPlugin: APIPlugin,
             AttributeTablePlugin: AttributeTablePlugin(CustomEditingInterface),
@@ -301,7 +304,8 @@ export default {
             }),
             ZoomInPlugin: ZoomInPlugin,
             ZoomOutPlugin: ZoomOutPlugin,
-            MilSymbSizeSliderPlugin: MilSymbSizeSlider
+            MilSymbSizeSliderPlugin: MilSymbSizeSlider,
+            FleetManagerPlugin: FleetManager
         },
         cfg: {
             BottomBarPlugin: {

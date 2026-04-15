@@ -1,0 +1,298 @@
+/* ── FleetManager sidebar plugin styles ────────────────────────────────────── */
+
+.fm-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    font-size: 13px;
+    height: 100%;
+    overflow-y: auto;
+    box-sizing: border-box;
+}
+
+/* ── Error banner ─────────────────────────────────────────────── */
+.fm-error {
+    background: #fdf2f2;
+    border: 1px solid #e57373;
+    border-radius: 4px;
+    color: #c62828;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+/* ── Section headers ──────────────────────────────────────────── */
+.fm-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #555;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 4px;
+    margin-top: 8px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+.fm-btn {
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px 10px;
+    transition: background 0.15s;
+}
+
+.fm-btn-primary {
+    background: #1565c0;
+    color: #fff;
+}
+.fm-btn-primary:hover { background: #0d47a1; }
+.fm-btn-primary:disabled { background: #90caf9; cursor: default; }
+
+.fm-btn-secondary {
+    background: #e0e0e0;
+    color: #333;
+}
+.fm-btn-secondary:hover { background: #bdbdbd; }
+
+.fm-btn-xs {
+    padding: 2px 7px;
+    font-size: 11px;
+}
+
+.fm-btn-sm {
+    padding: 2px 8px;
+    margin-left: 8px;
+}
+
+.fm-icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    line-height: 1;
+    opacity: 0.7;
+    transition: opacity 0.1s, background 0.1s;
+}
+.fm-icon-btn:hover { opacity: 1; background: #f0f0f0; }
+.fm-icon-btn:disabled { opacity: 0.3; cursor: default; }
+.fm-icon-danger:hover { background: #ffebee; }
+
+/* ── Fleet groups ─────────────────────────────────────────────── */
+.fm-group-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.fm-group-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 4px;
+    border-radius: 4px;
+    background: #f5f5f5;
+}
+
+.fm-group-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+/* ── Filter chips ─────────────────────────────────────────────── */
+.fm-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.fm-chip {
+    background: #e8eaf6;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    color: #3949ab;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 10px;
+    transition: background 0.15s;
+}
+.fm-chip:hover { background: #c5cae9; }
+.fm-chip.active {
+    background: #3949ab;
+    color: #fff;
+    border-color: #1a237e;
+}
+
+/* ── Device cards ─────────────────────────────────────────────── */
+.fm-device-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.fm-device-card {
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 6px 8px;
+    transition: opacity 0.2s;
+}
+.fm-device-card.fm-hidden {
+    opacity: 0.45;
+}
+
+.fm-device-header {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.fm-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.fm-status-online  { background: #43a047; }
+.fm-status-offline { background: #e53935; }
+.fm-status-unknown { background: #ffb300; }
+
+.fm-device-name {
+    flex: 1;
+    font-weight: 600;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.fm-device-id {
+    color: #888;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.fm-device-actions {
+    display: flex;
+    gap: 1px;
+    flex-shrink: 0;
+}
+
+.fm-device-meta {
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11px;
+    color: #666;
+    padding-left: 2px;
+}
+
+.fm-empty {
+    color: #999;
+    font-style: italic;
+    font-size: 12px;
+    padding: 4px 0;
+    margin: 0;
+}
+
+/* ── Spinner ──────────────────────────────────────────────────── */
+.fm-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid #bbb;
+    border-top-color: #1565c0;
+    border-radius: 50%;
+    animation: fm-spin 0.8s linear infinite;
+}
+
+@keyframes fm-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Modal overlay ────────────────────────────────────────────── */
+.fm-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9000;
+}
+
+.fm-modal {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
+    overflow-y: auto;
+    width: 360px;
+}
+
+.fm-modal-header {
+    align-items: center;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 16px;
+}
+.fm-modal-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.fm-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+}
+
+.fm-modal-footer {
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding: 10px 16px;
+}
+
+.fm-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.fm-field span {
+    font-size: 11px;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+}
+
+.fm-input {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+    padding: 5px 8px;
+    transition: border-color 0.15s;
+    width: 100%;
+    box-sizing: border-box;
+}
+.fm-input:focus {
+    border-color: #1565c0;
+    outline: none;
+}

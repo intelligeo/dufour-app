@@ -1,0 +1,91 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE properties SYSTEM 'http://java.sun.com/dtd/properties.dtd'>
+
+<!--
+  Traccar configuration for Dufour.app integration.
+  Reference: https://www.traccar.org/configuration-file/
+
+  IMPORTANT: change the database credentials to match your environment.
+  For a purely local dev stack the H2 embedded DB (default) is fine;
+  uncomment the PostgreSQL block to share the same Postgres instance.
+-->
+
+<properties>
+
+  <!-- ── Web server ─────────────────────────────────────────────────────── -->
+  <entry key='web.enable'>true</entry>
+  <entry key='web.port'>8082</entry>
+  <entry key='web.path'>./web</entry>
+
+  <!-- ── Database (embedded H2 – no external dependency) ───────────────── -->
+  <!--
+  <entry key='database.driver'>org.h2.Driver</entry>
+  <entry key='database.url'>jdbc:h2:/opt/traccar/data/database</entry>
+  <entry key='database.user'>sa</entry>
+  <entry key='database.password'></entry>
+  -->
+
+  <!-- ── Database (PostgreSQL – shared with Dufour PostGIS) ────────────── -->
+  <!--
+  Uncomment the block below to use PostgreSQL instead of H2.
+  Create the schema manually first:
+      CREATE SCHEMA traccar;
+  Then set TRACCAR_DB_PASSWORD in your .env / docker-compose env.
+  -->
+  <!--
+  <entry key='database.driver'>org.postgresql.Driver</entry>
+  <entry key='database.url'>jdbc:postgresql://postgres:5432/intelligeo_dufour?currentSchema=traccar</entry>
+  <entry key='database.user'>intelligeo_dufour</entry>
+  <entry key='database.password'>${TRACCAR_DB_PASSWORD}</entry>
+  -->
+
+  <!-- ── Email (optional: alarm notifications) ─────────────────────────── -->
+  <!--
+  <entry key='mail.smtp.host'>smtp.example.com</entry>
+  <entry key='mail.smtp.port'>587</entry>
+  <entry key='mail.smtp.starttls.enable'>true</entry>
+  <entry key='mail.smtp.username'>alerts@example.com</entry>
+  <entry key='mail.smtp.password'>secret</entry>
+  <entry key='mail.smtp.from'>alerts@example.com</entry>
+  -->
+
+  <!-- ── GPS protocol listeners ────────────────────────────────────────── -->
+  <!-- OsmAnd (for smartphone apps) -->
+  <entry key='osmand.port'>5055</entry>
+
+  <!-- Teltonika FMB/FMT family -->
+  <entry key='teltonika.port'>5001</entry>
+
+  <!-- Wialon IPS -->
+  <entry key='wialon.port'>5006</entry>
+
+  <!-- GPS103 / TK102 family -->
+  <entry key='gps103.port'>5013</entry>
+
+  <!-- H02 cheap trackers -->
+  <entry key='h02.port'>10001</entry>
+
+  <!-- ── Filtering ──────────────────────────────────────────────────────── -->
+  <!-- Drop positions with accuracy worse than 100 m -->
+  <entry key='filter.enable'>true</entry>
+  <entry key='filter.accuracy'>100</entry>
+  <!-- Drop duplicate positions within 1 s -->
+  <entry key='filter.duplicate'>true</entry>
+  <entry key='filter.period'>1</entry>
+
+  <!-- ── Geocoder (reverse geocoding) ──────────────────────────────────── -->
+  <!-- Uses Nominatim (open) by default, no key needed -->
+  <entry key='geocoder.enable'>true</entry>
+  <entry key='geocoder.type'>nominatim</entry>
+  <entry key='geocoder.url'>https://nominatim.openstreetmap.org/</entry>
+  <entry key='geocoder.reuseDistance'>50</entry>
+
+  <!-- ── Events / alarms ────────────────────────────────────────────────── -->
+  <entry key='event.geofenceEnter'>true</entry>
+  <entry key='event.geofenceExit'>true</entry>
+  <entry key='event.alarm'>true</entry>
+  <entry key='event.ignitionOn'>true</entry>
+  <entry key='event.ignitionOff'>true</entry>
+
+</properties>

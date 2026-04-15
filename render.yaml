@@ -61,6 +61,29 @@ services:
         value: "noreply@intelligeo.ch"
       - key: APP_BASE_URL
         value: "https://dev.dufour.app"
+      # ── Traccar GNSS tracking integration ──────────────────────────────────
+      # Render.com Web Services ONLY handle HTTP/HTTPS (port 443).
+      # Raw TCP ports used by GPS devices (5055, 5001, 5013 …) are NOT
+      # reachable on api.intelligeo.net or any other Render-hosted service.
+      #
+      # Traccar MUST run on a separate VPS (e.g. traccar.intelligeo.net) that
+      # can bind arbitrary TCP ports.  This backend merely proxies the Traccar
+      # REST/WebSocket API so the Fleet Manager UI and live map work.
+      #
+      # Deployment checklist:
+      #   1. Spin up a VPS (Hetzner CX11, DigitalOcean Droplet, etc.)
+      #   2. Run: docker run -d --name traccar \
+      #              -p 8082:8082 -p 5055:5055 -p 5001:5001 -p 5013:5013 \
+      #              traccar/traccar:latest
+      #   3. Point DNS: traccar.intelligeo.net → VPS IP
+      #   4. Open ports 8082, 5055, 5001, 5013, 5006, 10001 in VPS firewall
+      #   5. Set TRACCAR_URL below to http://traccar.intelligeo.net:8082
+      - key: TRACCAR_URL
+        value: "http://localhost:8082"
+      - key: TRACCAR_USER
+        value: "admin"
+      - key: TRACCAR_PASSWORD
+        sync: false  # Set manually in Render dashboard
     healthCheckPath: /
     autoDeploy: true
 

@@ -1,0 +1,126 @@
+# Dufour.app – Full Stack Docker Compose
+# ========================================
+# Services:
+#   frontend     – QWC2 (Nginx + built React app)
+#   backend      – FastAPI middleware + QGIS Server + milsymbol
+#   traccar      – Traccar GNSS tracking server (https://traccar.org)
+#   postgres     – PostgreSQL 16 + PostGIS (local dev; prod uses alwaysdata)
+#
+# Quick start (dev):
+#   docker compose up --build
+#
+# Then open http://localhost:10080 for the frontend and
+#         http://localhost:8082 for the Traccar admin UI.
+#
+# Traccar default credentials: admin / admin
+# (Change in the Traccar UI on first login!)
+
+version: "3.9"
+
+services:
+
+  # ── PostgreSQL + PostGIS ─────────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGIS_DB:-intelligeo_dufour}
+      POSTGRES_USER: ${POSTGIS_USER:-intelligeo_dufour}
+      POSTGRES_PASSWORD: ${POSTGIS_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGIS_USER:-intelligeo_dufour}"]
+      interval: 10s
+      retries: 5
+    networks:
+      - dufour_net
+
+  # ── Traccar tracking server ──────────────────────────────────────────────────
+  traccar:
+    image: traccar/traccar:latest
+    restart: unless-stopped
+    # Traccar uses its own H2 database by default.
+    # For production, mount a custom traccar.xml to point to the shared postgres.
+    volumes:
+      - traccar_data:/opt/traccar/data
+      - ./traccar/traccar.xml:/opt/traccar/conf/traccar.xml:ro
+    ports:
+      # Admin web UI + REST API
+      - "8082:8082"
+      # GPS protocol ports (add more as needed, see traccar.org/documentation)
+      - "5055:5055"     # OsmAnd
+      - "5055:5055/udp"
+      - "5001:5001"     # Teltonika
+      - "5006:5006"     # Wialon
+      - "5013:5013"     # GPS103
+      - "10001:10001"   # H02
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dufour_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8082/api/server || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Dufour backend (FastAPI + QGIS Server + milsymbol) ───────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: ${PORT:-10000}
+      POSTGIS_HOST: ${POSTGIS_HOST:-postgres}
+      POSTGIS_PORT: ${POSTGIS_PORT:-5432}
+      POSTGIS_DB: ${POSTGIS_DB:-intelligeo_dufour}
+      POSTGIS_USER: ${POSTGIS_USER:-intelligeo_dufour}
+      POSTGIS_PASSWORD: ${POSTGIS_PASSWORD:-changeme}
+      QGIS_SERVER_URL: http://localhost:8080
+      MILSYMBOL_SERVER_URL: http://localhost:2525
+      MILSYMBOL_PORT: "2525"
+      # ── Traccar integration ──────────────────────────────────────
+      TRACCAR_URL: ${TRACCAR_URL:-http://traccar:8082}
+      TRACCAR_USER: ${TRACCAR_USER:-admin}
+      TRACCAR_PASSWORD: ${TRACCAR_PASSWORD:-admin}
+      # ─────────────────────────────────────────────────────────────
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    ports:
+      - "10000:10000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      traccar:
+        condition: service_healthy
+    networks:
+      - dufour_net
+
+  # ── Dufour frontend (Nginx + QWC2 React build) ───────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: ${FRONTEND_PORT:-10080}
+    ports:
+      - "10080:${FRONTEND_PORT:-10080}"
+    depends_on:
+      - backend
+    networks:
+      - dufour_net
+
+volumes:
+  postgres_data:
+  traccar_data:
+
+networks:
+  dufour_net:
+    driver: bridge
