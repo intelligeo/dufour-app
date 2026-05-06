@@ -123,6 +123,8 @@ class TrackingSupport extends React.Component {
         this._ws = null;
         this._reconnectTimer = null;
         this._unmounted = false;
+        this._wsUrls = [];
+        this._wsUrlIndex = 0;
         // { deviceId: {pos, device} }
         this._data = {};
         this._hiddenDevices = new Set();
@@ -223,12 +225,39 @@ class TrackingSupport extends React.Component {
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
 
+    _buildWsUrls() {
+        const configuredBase = (ConfigUtils.getConfigProp('dufourApiUrl') || '').replace(/\/$/, '');
+        const candidates = [
+            configuredBase,
+            window.location.origin,
+            'https://api.intelligeo.net'
+        ].filter(Boolean);
+
+        const seen = new Set();
+        const urls = [];
+        candidates.forEach((base) => {
+            const wsBase = base.replace(/^http/, 'ws');
+            const url = `${wsBase}/api/tracking/ws`;
+            if (!seen.has(url)) {
+                seen.add(url);
+                urls.push(url);
+            }
+        });
+        return urls;
+    }
+
     _wsUrl() {
-        const base = (ConfigUtils.getConfigProp('dufourApiUrl') || window.location.origin)
-            .replace(/\/$/, '');
-        // Convert http(s) to ws(s)
-        const wsBase = base.replace(/^http/, 'ws');
-        return `${wsBase}/api/tracking/ws`;
+        if (!this._wsUrls.length) {
+            this._wsUrls = this._buildWsUrls();
+            this._wsUrlIndex = 0;
+        }
+        return this._wsUrls[this._wsUrlIndex] || `${window.location.origin.replace(/^http/, 'ws')}/api/tracking/ws`;
+    }
+
+    _advanceWsUrl() {
+        if (this._wsUrls.length > 1) {
+            this._wsUrlIndex = (this._wsUrlIndex + 1) % this._wsUrls.length;
+        }
     }
 
     _connect() {
@@ -262,6 +291,7 @@ class TrackingSupport extends React.Component {
         this._ws.onclose = () => {
             if (!this._unmounted) {
                 console.info('[TrackingSupport] WebSocket closed, reconnecting…');
+                this._advanceWsUrl();
                 this._scheduleReconnect();
             }
         };
