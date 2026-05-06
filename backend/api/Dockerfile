@@ -6,9 +6,13 @@ FROM qgis/qgis-server:ltr-noble
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Set container timezone to CET/CEST (Europe/Zurich)
+ENV TZ=Europe/Zurich
+
 # Install Node.js 18 (for milsymbol-server) and build deps for canvas
 RUN apt-get update && apt-get install -y \
     curl \
+    tzdata \
     python3-pip \
     libpq-dev \
     gcc \
@@ -21,6 +25,8 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
+    && ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo ${TZ} > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 # Install milsymbol-server

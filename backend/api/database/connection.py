@@ -76,7 +76,7 @@ class DatabaseConnection:
             echo=os.getenv('LOG_LEVEL') == 'DEBUG',  # Log SQL queries in debug mode
             connect_args={
                 'connect_timeout': 10,
-                'options': '-c timezone=utc'
+                'options': '-c timezone=Europe/Zurich'
             }
         )
         

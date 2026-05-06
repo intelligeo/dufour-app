@@ -56,6 +56,7 @@ services:
       TRACCAR_URL: ${TRACCAR_URL:-https://traccar.intelligeo.net}
       TRACCAR_USER: ${TRACCAR_USER:-admin}
       TRACCAR_PASSWORD: ${TRACCAR_PASSWORD:-admin}
+      TZ: ${TZ:-Europe/Zurich}
       # ─────────────────────────────────────────────────────────────
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}

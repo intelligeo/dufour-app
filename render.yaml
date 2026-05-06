@@ -26,6 +26,8 @@ services:
         value: http://localhost:8080  # QGIS Server embedded on port 8080
       - key: LOG_LEVEL
         value: INFO
+      - key: TZ
+        value: Europe/Zurich
       - key: QGIS_SERVER_LOG_LEVEL
         value: "1"  # 0=INFO, 1=WARNING, 2=CRITICAL
       - key: QGIS_SERVER_PARALLEL_RENDERING
