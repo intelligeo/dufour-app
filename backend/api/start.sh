@@ -96,6 +96,10 @@ if [ "$MILSYMBOL_READY" -eq 0 ]; then
   echo "--- Continuing anyway ---"
 fi
 
+# ---- Database schema migration ----
+echo "🗄️  Applying database schema migrations..."
+cd /app && python -m database.init_schema && echo "✅ Schema applied" || echo "⚠️  Schema migration failed (continuing)"
+
 # ---- FastAPI (foreground) ----
 API_PORT="${PORT:-3000}"
 echo "🚀 Starting FastAPI on port $API_PORT"
