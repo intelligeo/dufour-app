@@ -224,6 +224,8 @@ async def run_db_migrations():
     """Apply incremental DB migrations at startup (idempotent ALTER TABLE)."""
     from sqlalchemy import text as _text
     migrations = [
+        # required extensions
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"',
         # public.users — auth columns (may be missing on old DBs)
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'user'",
@@ -246,6 +248,24 @@ async def run_db_migrations():
             used BOOLEAN NOT NULL DEFAULT false,
             created_at TIMESTAMP DEFAULT NOW()
         )""",
+        # public.project_tracking — Traccar device/group links per project
+        """CREATE TABLE IF NOT EXISTS project_tracking (
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            device_id INTEGER,
+            group_id INTEGER,
+            created_at TIMESTAMP DEFAULT NOW(),
+            CONSTRAINT project_tracking_device_or_group CHECK (
+                (device_id IS NOT NULL AND group_id IS NULL) OR
+                (device_id IS NULL AND group_id IS NOT NULL)
+            )
+        )""",
+        """CREATE UNIQUE INDEX IF NOT EXISTS uq_project_tracking_device
+            ON project_tracking(project_id, device_id)
+            WHERE device_id IS NOT NULL""",
+        """CREATE UNIQUE INDEX IF NOT EXISTS uq_project_tracking_group
+            ON project_tracking(project_id, group_id)
+            WHERE group_id IS NOT NULL""",
     ]
     try:
         with db.get_engine().connect() as conn:
