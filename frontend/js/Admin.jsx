@@ -1315,14 +1315,13 @@ function AdminDashboard() {
     return (
         <div style={{flex: 1}}>
             <div style={S.tabs}>
-                {[['users', t('tabs.users')],['projects', t('tabs.projects')],['fleet', t('tabs.fleet')]].map(([key, label]) => (
+                {[['users', t('tabs.users')],['projects', t('tabs.projects')]].map(([key, label]) => (
                     <div key={key} style={{...S.tab, ...(tab===key ? S.tabActive : {})}}
                          onClick={() => setTab(key)}>{label}</div>
                 ))}
             </div>
             {tab === 'users'    && <AdminUsers    />}
             {tab === 'projects' && <AdminProjects />}
-            {tab === 'fleet'    && <AdminFleet    />}
         </div>
     );
 }
@@ -1529,14 +1528,14 @@ function AppShell() {
                 <span style={S.logo}>🗺 Dufour.app</span>
                 <span style={{color:'#9ba3af', fontSize:13}}>{t('header.subtitle')}</span>
                 <div style={S.user}>
-                    {/* Language selector */}
+                    {[['users', t('tabs.users')],['projects', t('tabs.projects')]].map(([key, label]) => (
                     <div style={{display:'flex', gap:2}}>
                         {LANGS.map(l => (
                             <button key={l.code}
                                     onClick={() => setLang(l.code)}
                                     title={l.label}
                                     style={{
-                                        background: lang === l.code ? '#354a6a' : 'transparent',
+                {tab === 'fleet' && <AdminFleet />}
                                         border: lang === l.code ? '1px solid #7cb9e8' : '1px solid transparent',
                                         borderRadius: 4, padding: '2px 6px', cursor: 'pointer',
                                         fontSize: 16, lineHeight: 1,

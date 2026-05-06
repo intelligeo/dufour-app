@@ -52,10 +52,6 @@ services:
       QGIS_SERVER_URL: http://localhost:8080
       MILSYMBOL_SERVER_URL: http://localhost:2525
       MILSYMBOL_PORT: "2525"
-      # ── Traccar integration (external: https://traccar.intelligeo.net) ──
-      TRACCAR_URL: ${TRACCAR_URL:-https://traccar.intelligeo.net}
-      TRACCAR_USER: ${TRACCAR_USER:-admin}
-      TRACCAR_PASSWORD: ${TRACCAR_PASSWORD:-admin}
       TZ: ${TZ:-Europe/Zurich}
       # ─────────────────────────────────────────────────────────────
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

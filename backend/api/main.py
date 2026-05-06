@@ -149,10 +149,6 @@ JWT bearer tokens via `/api/auth/login`. Admin endpoints require the `admin` rol
         {
             "name": "editing",
             "description": "QWC2 Editing API — WFS-T via REST → PostGIS. Dataset path: {project}/{lyr_table}."
-        },
-        {
-            "name": "tracking",
-            "description": "Live GNSS tracking — Traccar proxy, fleet/device management, real-time WebSocket position stream"
         }
     ],
     swagger_ui_parameters={
@@ -186,9 +182,6 @@ app.add_middleware(
 from routers.editing import router as editing_router
 app.include_router(editing_router)
 
-from routers.tracking import router as tracking_router
-app.include_router(tracking_router)
-
 # Initialize services
 project_service = ProjectService()
 data_service = DataService()
@@ -200,25 +193,6 @@ project_migrator = ProjectMigrator()
 # DB migration on startup — apply ALTER TABLE for new columns idempotently
 # so the app works even if init_schema.py was not re-run on an existing DB.
 # ---------------------------------------------------------------------------
-@app.on_event("startup")
-async def start_tracking_listener():
-    """Start the Traccar WebSocket listener in the background."""
-    import os
-    if os.getenv("TRACCAR_URL"):
-        from services.tracking_service import start_ws_listener
-        start_ws_listener()
-        logger.info("Traccar WebSocket listener started")
-    else:
-        logger.info("TRACCAR_URL not set – tracking WebSocket listener skipped")
-
-
-@app.on_event("shutdown")
-async def stop_tracking_listener():
-    """Stop the Traccar WebSocket listener gracefully."""
-    from services.tracking_service import stop_ws_listener
-    stop_ws_listener()
-
-
 @app.on_event("startup")
 async def run_db_migrations():
     """Apply incremental DB migrations at startup (idempotent ALTER TABLE)."""
@@ -248,24 +222,6 @@ async def run_db_migrations():
             used BOOLEAN NOT NULL DEFAULT false,
             created_at TIMESTAMP DEFAULT NOW()
         )""",
-        # public.project_tracking — Traccar device/group links per project
-        """CREATE TABLE IF NOT EXISTS project_tracking (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-            project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-            device_id INTEGER,
-            group_id INTEGER,
-            created_at TIMESTAMP DEFAULT NOW(),
-            CONSTRAINT project_tracking_device_or_group CHECK (
-                (device_id IS NOT NULL AND group_id IS NULL) OR
-                (device_id IS NULL AND group_id IS NOT NULL)
-            )
-        )""",
-        """CREATE UNIQUE INDEX IF NOT EXISTS uq_project_tracking_device
-            ON project_tracking(project_id, device_id)
-            WHERE device_id IS NOT NULL""",
-        """CREATE UNIQUE INDEX IF NOT EXISTS uq_project_tracking_group
-            ON project_tracking(project_id, group_id)
-            WHERE group_id IS NOT NULL""",
     ]
     try:
         with db.get_engine().connect() as conn:
