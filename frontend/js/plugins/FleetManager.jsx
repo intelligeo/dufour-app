@@ -43,8 +43,15 @@ function apiBase() {
     return (ConfigUtils.getConfigProp('dufourApiUrl') || '').replace(/\/$/, '');
 }
 
+function getTrackingToken() {
+    return window.__dufourJwt
+        || localStorage.getItem('dufour_jwt')
+        || localStorage.getItem('dufour_admin_token')
+        || '';
+}
+
 function authHeaders() {
-    const token = window.__dufourJwt || localStorage.getItem('dufour_jwt') || '';
+    const token = getTrackingToken();
     return {
         'Content-Type': 'application/json',
         'Accept': 'application/json',

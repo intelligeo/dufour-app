@@ -50,6 +50,13 @@ const LAYER_ID = 'dufour-tracking';
 const RECONNECT_DELAY_MS = 5000;
 const WGS84 = 'EPSG:4326';
 
+function getTrackingToken() {
+    return window.__dufourJwt
+        || localStorage.getItem('dufour_jwt')
+        || localStorage.getItem('dufour_admin_token')
+        || '';
+}
+
 // ── Style factory ─────────────────────────────────────────────────────────────
 
 function makeDeviceStyle(pos, device, selected) {
@@ -160,7 +167,7 @@ class TrackingSupport extends React.Component {
     _loadProjectAssoc = async (projectName) => {
         const base = (ConfigUtils.getConfigProp('dufourApiUrl') || window.location.origin)
             .replace(/\/$/, '');
-        const token = window.__dufourJwt || localStorage.getItem('dufour_jwt') || '';
+        const token = getTrackingToken();
         const headers = token ? {Authorization: `Bearer ${token}`} : {};
         try {
             const resp = await fetch(
@@ -229,7 +236,7 @@ class TrackingSupport extends React.Component {
         const url = this._wsUrl();
 
         // Append JWT if available
-        const token = window.__dufourJwt || localStorage.getItem('dufour_jwt');
+        const token = getTrackingToken();
         const fullUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url;
 
         try {
