@@ -3,17 +3,15 @@
 # Services:
 #   frontend     – QWC2 (Nginx + built React app)
 #   backend      – FastAPI middleware + QGIS Server + milsymbol
-#   traccar      – Traccar GNSS tracking server (https://traccar.org)
 #   postgres     – PostgreSQL 16 + PostGIS (local dev; prod uses alwaysdata)
+#
+# Traccar tracking is provided by the external API at https://traccar.intelligeo.net
+# (no local Traccar container – configure TRACCAR_USER / TRACCAR_PASSWORD in .env)
 #
 # Quick start (dev):
 #   docker compose up --build
 #
-# Then open http://localhost:10080 for the frontend and
-#         http://localhost:8082 for the Traccar admin UI.
-#
-# Traccar default credentials: admin / admin
-# (Change in the Traccar UI on first login!)
+# Then open http://localhost:10080 for the frontend.
 
 version: "3.9"
 
@@ -38,37 +36,6 @@ services:
     networks:
       - dufour_net
 
-  # ── Traccar tracking server ──────────────────────────────────────────────────
-  traccar:
-    image: traccar/traccar:latest
-    restart: unless-stopped
-    # Traccar uses its own H2 database by default.
-    # For production, mount a custom traccar.xml to point to the shared postgres.
-    volumes:
-      - traccar_data:/opt/traccar/data
-      - ./traccar/traccar.xml:/opt/traccar/conf/traccar.xml:ro
-    ports:
-      # Admin web UI + REST API
-      - "8082:8082"
-      # GPS protocol ports (add more as needed, see traccar.org/documentation)
-      - "5055:5055"     # OsmAnd
-      - "5055:5055/udp"
-      - "5001:5001"     # Teltonika
-      - "5006:5006"     # Wialon
-      - "5013:5013"     # GPS103
-      - "10001:10001"   # H02
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - dufour_net
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8082/api/server || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-
   # ── Dufour backend (FastAPI + QGIS Server + milsymbol) ───────────────────────
   backend:
     build:
@@ -85,8 +52,8 @@ services:
       QGIS_SERVER_URL: http://localhost:8080
       MILSYMBOL_SERVER_URL: http://localhost:2525
       MILSYMBOL_PORT: "2525"
-      # ── Traccar integration ──────────────────────────────────────
-      TRACCAR_URL: ${TRACCAR_URL:-http://traccar:8082}
+      # ── Traccar integration (external: https://traccar.intelligeo.net) ──
+      TRACCAR_URL: ${TRACCAR_URL:-https://traccar.intelligeo.net}
       TRACCAR_USER: ${TRACCAR_USER:-admin}
       TRACCAR_PASSWORD: ${TRACCAR_PASSWORD:-admin}
       # ─────────────────────────────────────────────────────────────
@@ -96,8 +63,6 @@ services:
       - "10000:10000"
     depends_on:
       postgres:
-        condition: service_healthy
-      traccar:
         condition: service_healthy
     networks:
       - dufour_net
@@ -119,7 +84,6 @@ services:
 
 volumes:
   postgres_data:
-  traccar_data:
 
 networks:
   dufour_net:
